@@ -137,22 +137,42 @@
       return World.randomPiece(Math.random);
     },
 
-    rects() {
-      const out = World.bagRects(this.world);
+    // withPickups: AI builders keep clear of money and nitro; the player's pieces may cover them
+    rects(withPickups = true) {
+      const out = withPickups ? World.bagRects(this.world) : [];
       for (const c of this.cars.concat(this.police.map((q) => q.car))) if (c.state !== 'wreck' && c.state !== 'fell' && c.state !== 'busted') out.push(c.bbox());
       if (this.heli) out.push(this.heli.rect());
       return out;
     },
 
     tryPlace(shape, col, row, owner, replace = false) {
-      if (!World.canPlace(this.world, shape, col, row, this.rects(), replace)) return false;
-      if (replace) this.shatterUnder(shape, col, row, owner);
+      if (!World.canPlace(this.world, shape, col, row, this.rects(!replace), replace)) return false;
+      if (replace) { this.shatterUnder(shape, col, row, owner); this.clearPickups(shape, col, row); }
       World.place(this.world, shape, col, row, owner);
       const pal = Art.teamPal(owner);
       shape.forEach((line, dy) => line.forEach((t, dx) => {
         if (t) Particles.spark((col + dx) * CELL + 8, (row + dy) * CELL + 8, 2, [pal.hi, '#ffffff'], 40);
       }));
       return true;
+    },
+
+    // money and nitro under a new piece are lost: they pop and vanish
+    clearPickups(shape, col, row) {
+      const w = this.world;
+      const covered = (p) => shape.some((line, dy) => line.some((t, dx) => {
+        if (!t) return false;
+        const x0 = (col + dx) * CELL, y0 = (row + dy) * CELL;
+        return p.x + 5 > x0 && p.x - 5 < x0 + CELL && p.y + 6 > y0 && p.y - 6 < y0 + CELL;
+      }));
+      let lost = 0;
+      for (const p of w.bags.concat(w.nitros)) {
+        if (p.taken || !covered(p)) continue;
+        p.taken = true; lost++;
+        Particles.spark(p.x, p.y, 10, p.value ? ['#3fbf5a', '#a8f59a', '#ffffff'] : ['#29d9ff', '#ffffff'], 70);
+        for (let k = 0; k < 4; k++) Particles.smoke(p.x + (Math.random() - 0.5) * 8, p.y);
+      }
+      if (lost) Audio8.sfx.invalid();
+      return lost;
     },
 
     // blocks overwritten by a new piece burst into voxels of their gang colors
@@ -261,7 +281,7 @@
       }
       const sxL = col * CELL - this.camX;
       const onScreen = sxL + sw > -ox && sxL < vw - ox && d.sy < TRAY_Y;
-      const ok = onScreen && World.canPlace(this.world, shape, col, row, this.rects(), true);
+      const ok = onScreen && World.canPlace(this.world, shape, col, row, this.rects(false), true);
       const swap = new Set();
       shape.forEach((line, dy) => line.forEach((t, dx) => { if (t && World.cellAt(this.world, col + dx, row + dy)) swap.add(dy * 16 + dx); }));
       return { shape, col, row, ok, swap };

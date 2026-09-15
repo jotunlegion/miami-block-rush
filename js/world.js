@@ -163,7 +163,7 @@
     return [nx / l, ny / l];
   }
 
-  // rects: [{x,y,w,h}] that pieces may not overlap; replace: may overwrite placed (non-static) blocks
+  // rects: [{x,y,w,h}] that pieces may not overlap; replace: may overwrite any block, map islands included
   function canPlace(w, shape, col, row, rects, replace = false) {
     for (let dy = 0; dy < shape.length; dy++)
       for (let dx = 0; dx < shape[dy].length; dx++) {
@@ -171,7 +171,7 @@
         const c = col + dx, rr = row + dy;
         if (c < 0 || c >= w.cols || rr < 1 || rr >= ROWS) return false;
         const i = rr * w.cols + c;
-        if (w.type[i] && (!replace || w.owner[i] === OWNER_STATIC)) return false;
+        if (w.type[i] && !replace) return false;
         const x0 = c * CELL, y0 = rr * CELL;
         for (const q of rects)
           if (x0 < q.x + q.w && x0 + CELL > q.x && y0 < q.y + q.h && y0 + CELL > q.y) return false;
