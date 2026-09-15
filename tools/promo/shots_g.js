@@ -150,7 +150,7 @@
     // slogan
     const s1 = clamp((t - 16.62) / 0.12, 0, 1);
     if (s1 > 0) {
-      const str = 'В ДУБУ ЗАТИШНІ МОБІЛЬНІ ІГРИ!';
+      const str = 'В ДУПУ ЗАТИШНІ МОБІЛЬНІ ІГРИ!';
       const sc = lerp(5, 2, ease.back(s1));
       Font.draw(ctx, str, 240, 82 - (sc - 2) * 3, '#ffffff', sc, 'center', '#8c1a5c');
     }
