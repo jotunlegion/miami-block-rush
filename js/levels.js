@@ -31,7 +31,7 @@
       return {
         n, name: UNLOCKS[1], tutorial: true, cols: 72, gap: { col: 28, len: 4, row: 9 },
         rivals: 0, police: 0, platforms: false, heli: false, nitro: false, islands: [0, 0], trapGap: 0,
-        bonus: [300], winBonus: 0, ai: null, policeSpeed: 1, tips: TIPS[1],
+        bonus: [300], winBonus: 0, ai: null, policeSpeed: 1, tips: TIPS[1], cash: 1,
       };
     }
     // every level is a bit longer
@@ -42,7 +42,9 @@
     const count = k > 0 ? Math.max(1, Math.round(5 * k)) : 0;
     const len = Math.max(6, Math.round((field / 20) * (0.4 + 0.6 * k)));
     const rivals = n >= 6 ? 2 : n >= 3 ? 1 : 0;
+    const cash = Balance.cashMul(n), scale = (v) => Math.round((v * cash) / 10) * 10;
     return {
+      cash,
       n, cols, rivals,
       name: UNLOCKS[n] || DISTRICTS[(n - 7) % DISTRICTS.length],
       tutorial: false,
@@ -52,13 +54,25 @@
       heli: n >= 20,
       nitro: true,
       trapGap: Math.max(34, 80 - n * 3),
-      bonus: rivals ? [1000, 500, 200] : [600],
-      winBonus: rivals ? 500 : 0,
+      bonus: (rivals ? [1000, 500, 200] : [600]).map(scale),
+      winBonus: rivals ? scale(500) : 0,
       ai: { delay: Math.max(0.45, 0.72 - (n - 3) * 0.015), mistake: Math.max(0.03, 0.1 - (n - 3) * 0.004) },
       policeSpeed: Math.min(1.15, 0.8 + Math.max(0, n - 4) * 0.02),
       tips: TIPS[n] || GENERIC,
     };
   }
 
-  window.Levels = { config };
+  // Blacklist duel: the gate level's layout, one on one, no police; first to the finish takes the car
+  function boss(r) {
+    const L = config(r.gate);
+    return Object.assign({}, L, {
+      boss: r, rivals: 1, police: 0, heli: false, platforms: true,
+      name: 'ЧОРНИЙ СПИСОК #' + r.rank,
+      bonus: [Math.round((1500 * L.cash) / 10) * 10, 0], winBonus: 0,
+      ai: { delay: +(0.55 - 0.012 * r.i).toFixed(3), mistake: +(0.06 - 0.0025 * r.i).toFixed(4), look: 1.7 },
+      tips: [r.nick + ': ' + r.taunt, 'ПЕРШИЙ НА ФІНІШІ ЗАБИРАЄ ТАЧКУ'],
+    });
+  }
+
+  window.Levels = { config, boss };
 })();

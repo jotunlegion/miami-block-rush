@@ -80,7 +80,8 @@
       Audio8.startMusic('menu');
       Audio8.setEngine(0, false); Audio8.setSiren(0);
       Garage.onRace = () => this.startRace();
-      Garage.enter('hub', opts);
+      Garage.onCareer = (r) => this.startCareer(r);
+      Garage.enter((opts && opts.screen) || 'hub', opts);
     },
 
     startRace(n) {
@@ -98,13 +99,37 @@
       this.police = [95, 40].slice(0, L.police).map((x, i) => new Police(this.world, x, this, i));
       this.heli = L.heli ? new Helicopter(this) : null;
       this.tut = L.tutorial ? { bridged: false } : null;
+      this.boss = null;
       this.tray = [0, 1, 2].map(() => ({ piece: L.tutorial ? { p: 0, v: 0 } : this.nextPiece(), cd: 0 }));
+      this.resetRace();
+    },
+
+    resetRace() {
       this.drag = null; this.grab = null; this.platT = 3; this.banner = null;
       this.count = 3.99; this.lastBeep = 4;
       this.raceTime = 0; this.finished = 0; this.endTimer = Infinity; this.acc = 0;
       this.camX = this.player.x - 130;
       this.state = 'countdown';
       Audio8.startMusic('race');
+    },
+
+    // Blacklist duel: one on one with the rival's tuned car; the winner takes the loser's pink slip
+    startCareer(r) {
+      Particles.clear();
+      const L = (this.level = Levels.boss(r));
+      const gi = Profile.data.gang;
+      this.gi = gi;
+      this.world = World.create((Math.random() * 1e9) | 0, L);
+      const bg = r.gang === gi ? (gi + 1) % 3 : r.gang;
+      const def = Profile.def(r.car.id, r.bossUp, { glow: ['pink', 'gold', 'cyan'][bg] });
+      this.cars = [new Car(this.world, def, 215, 128, false, bg)];
+      this.player = new Car(this.world, Profile.playerDef(), 270, 128, true, gi);
+      this.cars.push(this.player);
+      this.ais = [new AIBuilder(this.cars[0], this, L.ai)];
+      this.police = []; this.heli = null; this.tut = null;
+      this.boss = r;
+      this.tray = [0, 1, 2].map(() => ({ piece: this.nextPiece(), cd: 0 }));
+      this.resetRace();
     },
 
     nextPiece() {
@@ -161,6 +186,11 @@
         this.banner = { text: 'ФІНІШ #' + car.place, color: '#ffc31f', t: 2.5 };
         this.endTimer = 14;
       }
+      // a duel is over as soon as someone crosses the line
+      if (this.boss && car.place === 1) {
+        this.endTimer = Math.min(this.endTimer, 3);
+        if (!car.isPlayer) this.banner = { text: this.boss.nick + ' ПЕРШИЙ!', color: '#ff5c7a', t: 2.5 };
+      }
     },
 
     onStunt(car, airT) {
@@ -205,10 +235,11 @@
       this.results = this.cars
         .map((c) => ({ c, total: c.state === 'busted' ? 0 : c.money + c.bonus }))
         .sort((a, b) => b.total - a.total);
-      this.win = p.state !== 'busted' && p.place > 0 && this.results[0].c === p;
+      this.win = p.state !== 'busted' && p.place > 0 && (this.boss ? p.place === 1 : this.results[0].c === p);
       this.earned = p.state === 'busted' ? 0 : p.money + p.bonus + (this.win ? L.winBonus : 0);
-      this.unlocked = this.win && Profile.data.level <= L.n;
-      if (this.win) Profile.levelDone(L.n);
+      this.unlocked = !this.boss && this.win && Profile.data.level <= L.n;
+      this.slip = this.boss && this.win ? Profile.careerWin(this.boss) : false;
+      if (this.win && !this.boss) Profile.levelDone(L.n);
       Profile.raceDone(this.earned, this.win);
       Audio8.setEngine(0, false); Audio8.setSiren(0);
       if (this.win) Audio8.sfx.finish();
@@ -451,7 +482,7 @@
       }
       }
       if (window.Bot && (this.state === 'race' || this.state === 'countdown')) { ctx.save(); ctx.translate(ox, oy); Bot.draw(ctx); ctx.restore(); }
-      if (window.Music && Music.started() && !(this.state === 'garage' && Garage.screen === 'jukebox')) {
+      if (window.Music && Music.started() && !(this.state === 'garage' && (Garage.screen === 'jukebox' || Garage.screen === 'career'))) {
         const acc = Profile.data && Profile.data.gang != null ? Art.TEAM[Profile.data.gang].main : '#ff3ea5';
         const inRace = this.state === 'race' || this.state === 'countdown' || this.state === 'results';
         const pos = inRace ? [4, 184, 196] : this.state === 'garage' ? [176, 31, 164] : this.state === 'select' ? [4, 2, 168] : [4, 232, 196];
@@ -704,7 +735,7 @@
       const key = (c) => (c.state === 'busted' ? -1e9 : c.place ? 1e6 - c.place : c.x);
       const pos = 1 + this.cars.filter((c) => c !== p && key(c) > key(p)).length;
       Font.draw(ctx, 'ПОЗ ' + pos + '/' + this.cars.length, 420, 4, '#ffffff', 1, 'right');
-      Font.draw(ctx, 'РІВЕНЬ ' + this.level.n, 420, 14, '#b9a8e0', 1, 'right');
+      Font.draw(ctx, this.boss ? 'СПИСОК #' + this.boss.rank : 'РІВЕНЬ ' + this.level.n, 420, 14, '#b9a8e0', 1, 'right');
       if (p.boost > 0)
         for (let k = 0; k < 14; k++) {
           ctx.fillStyle = k % 3 ? '#ffffff55' : '#29d9ff88';
@@ -716,9 +747,18 @@
 
       if (this.state === 'countdown') {
         const n = Math.ceil(this.count), L = this.level;
-        Font.draw(ctx, String(n), 240, 44, '#ffc31f', 6, 'center', '#8c1a5c');
-        Font.draw(ctx, 'РІВЕНЬ ' + L.n + ' - ' + L.name, 240, 98, '#ffffff', 2, 'center', '#12082a');
-        L.tips.forEach((s, i) => Font.draw(ctx, s, 240, 122 + i * 12, i === 0 ? '#ffc31f' : '#d8ccff', 1, 'center'));
+        if (this.boss) {
+          const r = this.boss, pw = Portraits.W * 2, ph = Portraits.H * 2, px = 24, py = 34;
+          ctx.fillStyle = '#05030c'; ctx.fillRect(px - 2, py - 2, pw + 4, ph + 4);
+          ctx.fillStyle = r.portrait.rim; ctx.fillRect(px - 1, py - 1, pw + 2, ph + 2);
+          ctx.drawImage(Portraits.build(r.portrait), px, py, pw, ph);
+          Font.draw(ctx, r.nick, px + pw / 2, py + ph + 6, '#ffffff', 1, 'center', '#12082a');
+        }
+        // a duel keeps its text to the right of the rival's portrait
+        const tx = this.boss ? 300 : 240;
+        Font.draw(ctx, String(n), tx, 44, '#ffc31f', 6, 'center', '#8c1a5c');
+        Font.draw(ctx, this.boss ? L.name : 'РІВЕНЬ ' + L.n + ' - ' + L.name, tx, 98, '#ffffff', 2, 'center', '#12082a');
+        L.tips.forEach((s, i) => Font.draw(ctx, s, tx, 122 + i * 12, i === 0 ? '#ffc31f' : '#d8ccff', 1, 'center'));
       }
       if (p.state === 'hover') Font.draw(ctx, 'БУДУЙ ПІД СОБОЮ! ' + Math.ceil(p.timer), 240, 30, '#29e0d0', 1, 'center');
       if (this.state === 'race' && p.active) {
@@ -771,10 +811,43 @@
       else if (p.hold) plate('МАШИНА ЧЕКАЄ, ПОКИ ТИ ЗБУДУЄШ МІСТ', 58, '#d8ccff');
     },
 
+    drawDuelResults() {
+      const r = this.boss, win = this.win, t = this.time;
+      Font.draw(ctx, win ? 'ТАЧКА ТВОЯ!' : 'ПОРАЗКА', 240, 14, win ? '#ffc31f' : '#ff3ea5', 3, 'center', '#12082a');
+      Font.draw(ctx, 'ЧОРНИЙ СПИСОК #' + r.rank + ' - ' + r.nick, 240, 40, '#d8ccff', 1, 'center');
+      const pw = Portraits.W * 2, ph = Portraits.H * 2, px = 44, py = 56;
+      ctx.fillStyle = '#05030c'; ctx.fillRect(px - 2, py - 2, pw + 4, ph + 4);
+      ctx.fillStyle = r.portrait.rim; ctx.fillRect(px - 1, py - 1, pw + 2, ph + 2);
+      ctx.drawImage(Portraits.build(r.portrait), px, py, pw, ph);
+      if (win) { ctx.globalAlpha = 0.35; ctx.fillStyle = '#05030c'; ctx.fillRect(px, py, pw, ph); ctx.globalAlpha = 1; }
+      // speech bubble
+      const quote = win ? r.lose : r.taunt, qw = Math.min(300, Font.measure(quote, 1) + 16);
+      ctx.fillStyle = '#f2eefa'; ctx.fillRect(136, 62, qw, 17); ctx.fillRect(132, 68, 4, 4);
+      ctx.fillStyle = '#12082a'; Font.draw(ctx, quote, 144, 67, '#12082a', 1, 'left', null);
+      if (win) {
+        const map = Custom.build(r.car);
+        Voxel3D.render(ctx, map, { cx: 300, cy: 124, zoom: 3, yaw: t * 0.9, pitch: 0.3, glow: map.glow });
+        Font.draw(ctx, r.car.name, 300, 150, '#ffffff', 2, 'center', '#12082a');
+        Font.draw(ctx, this.slip ? 'ТЕПЕР У ТВОЄМУ ГАРАЖІ' : 'ПЕРЕМОГА ЗАРАХОВАНА', 300, 168, '#9bf08a', 1, 'center');
+      } else {
+        const p = this.player, boss = this.cars[0];
+        Font.draw(ctx, p.place ? 'ТИ ФІНІШУВАВ ДРУГИМ' : 'ТИ НЕ ДОЇХАВ ДО ФІНІШУ', 300, 104, '#ff7cc6', 1, 'center');
+        Font.draw(ctx, 'РЕЙТИНГ ' + Profile.rating(boss.g) + ' ПРОТИ ТВОГО ' + Profile.rating(p.g), 300, 118, '#d8ccff', 1, 'center');
+        Font.draw(ctx, 'ПОТРІБНО ПРИБЛИЗНО ' + Math.round((r.need - 90) * 5), 300, 132, '#ffc31f', 1, 'center');
+        Font.draw(ctx, 'ПРОКАЧАЙ ТАЧКУ В ТЮНІНГУ', 300, 146, '#b9a8e0', 1, 'center');
+      }
+      Font.draw(ctx, 'ЗАРОБЛЕНО: ' + UI.money(this.earned), 240, 180, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
+      const main = Art.TEAM[this.gi].main;
+      if (win) this.button(120, 194, 110, 22, 'КАР\'ЄРА', main, () => UI.transition('shutter', () => this.toGarage({ earned: this.earned, screen: 'career' }), 'ЧОРНИЙ СПИСОК'));
+      else this.button(120, 194, 110, 22, 'ЩЕ РАЗ', main, () => UI.transition('shutter', () => this.startCareer(r), r.nick + ' VS ТИ'));
+      this.button(250, 194, 110, 22, 'В ГАРАЖ', '#9d8cff', () => UI.transition('shutter', () => this.toGarage({ earned: this.earned }), 'ГАРАЖ'));
+    },
+
     drawResults() {
       ctx.fillStyle = '#12082ad0'; ctx.fillRect(0, 0, vw, vh);
       ctx.save(); ctx.translate(ox, oy);
       const L = this.level, busted = this.player.state === 'busted';
+      if (this.boss) { this.drawDuelResults(); ctx.restore(); return; }
       const title = busted ? 'ТЕБЕ ЗАТРИМАЛИ' : this.win ? 'РІВЕНЬ ' + L.n + ' ПРОЙДЕНО!' : 'ПОРАЗКА';
       Font.draw(ctx, title, 240, 18, this.win ? '#ffc31f' : '#ff3ea5', 3, 'center', '#12082a');
       if (this.win) {

@@ -3,6 +3,7 @@
   const U = Catalog.UPGRADES, P = Catalog.PARTS, HW = Voxel3D.HW;
   const MENU = [
     { id: 'race', name: 'ГОНКА', icon: 'flag', get hint() { const L = Levels.config(Profile.data ? Profile.data.level : 1); return 'РІВЕНЬ ' + L.n + ': ' + L.name; } },
+    { id: 'career', name: 'КАР\'ЄРА', icon: 'crown', get hint() { return careerHint(); } },
     { id: 'lot', name: 'АВТОСАЛОН', icon: 'key', hint: '20 ЛЕГЕНД 80-Х - 2000-Х' },
     { id: 'perf', name: 'ТЮНІНГ', icon: 'engine', hint: 'ДВИГУН, ТУРБО, ШИНИ, ПІДВІСКА' },
     { id: 'visual', name: 'ВІЗУАЛ', icon: 'spray', hint: 'ОБВІС, ФАРБА, ВІНІЛИ, НЕОН' },
@@ -39,6 +40,15 @@
   };
   let E = null, ctx = null;
 
+  const CL_ROWS = 8, CL_H = 28;
+  const careerList = () => Blacklist.RIVALS.slice().sort((a, b) => a.rank - b.rank);
+  const nextRival = () => careerList().filter((r) => !Profile.beaten(r.rank)).pop();
+  function careerHint() {
+    if (!Profile.data) return '';
+    const r = nextRival();
+    if (!r) return 'ТИ - ЛЕГЕНДА ВАЙС-СІТІ';
+    return 'ЧОРНИЙ СПИСОК #' + r.rank + ' ' + r.nick + (Profile.data.level < r.gate ? ' - З РІВНЯ ' + r.gate : ' ЧЕКАЄ');
+  }
   const gang = () => Profile.data.gang || 0;
   const accent = () => Art.TEAM[gang()].main;
   const accentHi = () => Art.TEAM[gang()].hi;
@@ -97,6 +107,11 @@
     if (screen === 'visual') { UI.tween(S.cam, { cx: 168, cy: 116 }, 0.6, 'inOutCubic'); pickVisualCat(0); }
     if (screen === 'perf') { UI.tween(S.cam, { cx: 232, cy: 124 }, 0.6, 'inOutCubic'); pickPerfCat(0); }
     if (screen === 'lot') { S.cam.cx = 240; S.cam.cy = 112; setEra(S.era, true); flyTo('full', { zoom: 5 }); }
+    if (screen === 'career') {
+      const list = careerList(), nr = nextRival();
+      S.item = nr ? list.indexOf(nr) : 0;
+      S.scroll = Math.max(0, Math.min(S.item - 3, list.length - CL_ROWS));
+    }
     if (screen === 'jukebox' && window.Music) {
       S.item = Math.max(0, Music.tracks.indexOf(Music.current()));
       S.scroll = Math.max(0, Math.min(S.item - 2, Music.tracks.length - 6));
@@ -123,9 +138,10 @@
 
   function activateMenu(i) {
     const m = MENU[i];
-    if (!Profile.data.current && m.id !== 'lot' && m.id !== 'jukebox') { Audio8.sfx.invalid(); toast('СПЕРШУ КУПИ АВТО', '#ff5c7a'); return; }
+    if (!Profile.data.current && m.id !== 'lot' && m.id !== 'jukebox' && m.id !== 'career') { Audio8.sfx.invalid(); toast('СПЕРШУ КУПИ АВТО', '#ff5c7a'); return; }
     Audio8.sfx.click();
     if (m.id === 'race') UI.transition('shutter', () => S.onRace && S.onRace(), 'ГОНКА!');
+    else if (m.id === 'career') go('career');
     else go(m.id);
   }
 
@@ -151,7 +167,7 @@
 
   function setEra(era, instant) {
     S.era = era;
-    S.list = (era === 'start' ? Catalog.ALL.filter((c) => c.price <= STARTER_BUDGET).sort((a, b) => a.price - b.price) : Catalog.SHOP.filter((c) => c.era === era)).map((c) => c.id);
+    S.list = (era === 'start' ? Catalog.ALL.filter((c) => !c.bl && c.price <= STARTER_BUDGET).sort((a, b) => a.price - b.price) : Catalog.SHOP.filter((c) => c.era === era)).map((c) => c.id);
     S.idx = 0; S.confirm = false;
     if (!instant) driveIn();
   }
@@ -531,8 +547,9 @@
 
   function visualRows(cat) {
     const e = entry(), cu = e.cu, id = Profile.data.current;
-    if (cat.id === 'paint') return Catalog.PAINTS.map((p) => ({ label: p.name, swatch: p.c, installed: cu.paint === p.c, tag: UI.money(PAINT_PRICE), apply: { paint: p.c }, price: PAINT_PRICE }));
-    if (cat.id === 'accent') return Catalog.PAINTS.map((p) => ({ label: p.name, swatch: p.c, installed: cu.accent === p.c, tag: UI.money(ACCENT_PRICE), apply: { accent: p.c }, price: ACCENT_PRICE }));
+    const pp = Profile.partCost(id, PAINT_PRICE), ap = Profile.partCost(id, ACCENT_PRICE);
+    if (cat.id === 'paint') return Catalog.PAINTS.map((p) => ({ label: p.name, swatch: p.c, installed: cu.paint === p.c, tag: UI.money(pp), apply: { paint: p.c }, price: pp }));
+    if (cat.id === 'accent') return Catalog.PAINTS.map((p) => ({ label: p.name, swatch: p.c, installed: cu.accent === p.c, tag: UI.money(ap), apply: { accent: p.c }, price: ap }));
     return P[cat.id].map((o) => {
       const price = Profile.partCost(id, o.price);
       return { label: o.name, swatch: o.c, installed: cu[cat.id] === o.id, tag: price ? UI.money(price) : 'БЕЗКОШТ.', apply: { [cat.id]: o.id }, price };
@@ -655,6 +672,89 @@
     particlesAndFx();
   }
 
+  // ---------- Blacklist career (NFS Most Wanted style) ----------
+  function framePortrait(r, x, y, s, dim) {
+    const p = Portraits.build(r.portrait), w = Portraits.W * s, h = Portraits.H * s;
+    ctx.fillStyle = '#05030c'; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+    ctx.fillStyle = r.portrait.rim; ctx.fillRect(x - 1, y - 1, w + 2, 1); ctx.fillRect(x - 1, y + h, w + 2, 1); ctx.fillRect(x - 1, y - 1, 1, h + 2); ctx.fillRect(x + w, y - 1, 1, h + 2);
+    ctx.drawImage(p, x, y, w, h);
+    if (dim) { ctx.globalAlpha = 0.55; ctx.fillStyle = '#05030c'; ctx.fillRect(x, y, w, h); ctx.globalAlpha = 1; }
+  }
+
+  function drawCareer() {
+    drawBg(true);
+    ctx.globalAlpha = 0.5; ctx.fillStyle = '#05030c'; ctx.fillRect(0, 0, E.vw, E.vh); ctx.globalAlpha = 1;
+    ctx.save(); ctx.translate(E.ox, E.oy);
+    topBar('ЧОРНИЙ СПИСОК', 'crown');
+    const list = careerList(), k = UI.Ease.outCubic(S.enter.k), t = S.t;
+    // ranking column
+    const lx = Math.round(4 - 190 * (1 - k)), ly = 32;
+    slant(lx, ly, 176, 234, '#12082aee', accent(), 8);
+    for (let vi = 0; vi < CL_ROWS; vi++) {
+      const idx = S.scroll + vi, r = list[idx];
+      if (!r) break;
+      const ry = ly + 5 + vi * CL_H, sel = idx === S.item, st = Profile.careerState(r);
+      if (sel) slant(lx + 4, ry, 166, CL_H - 2, '#3a1a66', '#ffffff', 5);
+      ctx.fillStyle = '#05030c'; ctx.fillRect(lx + 11, ry, 26, 26);
+      ctx.drawImage(Portraits.build(r.portrait), 8, 6, 24, 24, lx + 12, ry + 1, 24, 24);
+      if (st === 'level' || st === 'prev') { ctx.globalAlpha = 0.6; ctx.fillStyle = '#05030c'; ctx.fillRect(lx + 12, ry + 1, 24, 24); ctx.globalAlpha = 1; }
+      Font.draw(ctx, '#' + r.rank, lx + 42, ry + 4, st === 'beaten' ? '#6aff5a' : sel ? '#ffc31f' : '#b9a8e0', 1, 'left', null);
+      Font.draw(ctx, r.nick, lx + 42, ry + 14, sel || st === 'open' ? '#ffffff' : '#8a7aa8', 1, 'left', null);
+      if (st === 'beaten') UI.icon(ctx, 'check', lx + 152, ry + 7, '#6aff5a');
+      else if (st !== 'open') UI.icon(ctx, 'lock', lx + 152, ry + 7, '#6a5a88');
+      else UI.icon(ctx, 'crown', lx + 152, ry + 7 - (Math.floor(t * 4) % 2), '#ffc31f');
+      E.button(lx, ry, 176, CL_H, () => { if (S.item !== idx) { S.item = idx; Audio8.sfx.select(); } });
+    }
+    const up = () => { if (S.scroll > 0) { S.scroll--; Audio8.sfx.select(); } };
+    const dn = () => { if (S.scroll + CL_ROWS < list.length) { S.scroll++; Audio8.sfx.select(); } };
+    ctx.fillStyle = S.scroll > 0 ? '#ffffff' : '#3d2f7a';
+    for (let q = 0; q < 3; q++) ctx.fillRect(lx + 90 - q, ly + 3 - (2 - q) + 1, q * 2 + 1, 1);
+    ctx.fillStyle = S.scroll + CL_ROWS < list.length ? '#ffffff' : '#3d2f7a';
+    for (let q = 0; q < 3; q++) ctx.fillRect(lx + 90 - q, ly + 229 + q, q * 2 + 1, 1);
+    E.button(lx + 60, ly - 4, 60, 12, up);
+    E.button(lx + 60, ly + 224, 60, 12, dn);
+
+    // rival card
+    const r = list[S.item], st = Profile.careerState(r), her = r.portrait.fem ? 'ЇЇ' : 'ЙОГО';
+    const cx0 = Math.round(184 + 300 * (1 - k)), cy0 = 32;
+    slant(cx0, cy0, 292, 234, '#12082aee', st === 'beaten' ? '#6aff5a' : accent(), 8);
+    framePortrait(r, cx0 + 16, cy0 + 10, 2, st === 'level' || st === 'prev');
+    Font.draw(ctx, '#' + r.rank, cx0 + 278, cy0 + 8, '#ffc31f', 3, 'right', '#12082a');
+    Font.draw(ctx, r.nick, cx0 + 108, cy0 + 12, '#ffffff', 2, 'left', '#12082a');
+    Font.draw(ctx, r.name, cx0 + 108, cy0 + 30, accentHi(), 1, 'left', null);
+    // pink slip car on a small turntable
+    const map = Custom.build(r.car);
+    Voxel3D.render(ctx, map, { cx: cx0 + 196, cy: cy0 + 72, zoom: 2, yaw: t * 0.9 + 0.6, pitch: 0.32 });
+    Font.draw(ctx, her + ' ТАЧКА: ' + r.car.name, cx0 + 108, cy0 + 96, '#d8ccff', 1, 'left', null);
+    r.story.forEach((line, j) => Font.draw(ctx, line, cx0 + 16, cy0 + 116 + j * 10, '#b9a8e0', 1, 'left', null));
+    // numbers the player needs to see
+    const cur = Profile.data.current, e = cur ? Profile.entry(cur) : null;
+    const myR = cur ? Profile.rating(Profile.stats(cur, e.up)) : 0;
+    const needR = Math.round((r.need - 90) * 5), bossR = Profile.rating(Profile.stats(r.car.id, r.bossUp));
+    const yb = cy0 + 152;
+    Font.draw(ctx, her + ' РЕЙТИНГ', cx0 + 16, yb, '#8a7aa8', 1, 'left', null);
+    Font.draw(ctx, String(bossR), cx0 + 140, yb, '#ffffff', 1, 'right', null);
+    Font.draw(ctx, 'ПОТРІБНО', cx0 + 16, yb + 11, '#8a7aa8', 1, 'left', null);
+    Font.draw(ctx, String(needR), cx0 + 140, yb + 11, '#ffc31f', 1, 'right', null);
+    Font.draw(ctx, 'ТВІЙ', cx0 + 16, yb + 22, '#8a7aa8', 1, 'left', null);
+    Font.draw(ctx, cur ? String(myR) : '-', cx0 + 140, yb + 22, myR >= needR ? '#6aff5a' : '#ff5c7a', 1, 'right', null);
+    const okCar = Profile.carOk(r);
+    Font.draw(ctx, 'СТАВКА', cx0 + 156, yb, '#8a7aa8', 1, 'left', null);
+    Font.draw(ctx, r.carReq ? 'ТАЧКА ВІД ' + UI.money(r.carReq) : 'БУДЬ-ЯКА ТАЧКА', cx0 + 156, yb + 11, okCar ? '#6aff5a' : '#ff5c7a', 1, 'left', null);
+    Font.draw(ctx, 'ПРИЗ: ' + UI.money(r.car.price), cx0 + 156, yb + 22, '#9bf08a', 1, 'left', null);
+    // challenge
+    const bx = cx0 + 140, by = cy0 + 206;
+    if (st === 'beaten') actionButton(bx, by, 140, 'ПЕРЕМОЖЕНО', '#6aff5a', () => {}, false);
+    else if (st === 'prev') actionButton(bx, by, 140, 'СПЕРШУ #' + (r.rank + 1), '#6a5a88', () => {}, false);
+    else if (st === 'level') actionButton(bx, by, 140, 'З РІВНЯ ' + r.gate, '#6a5a88', () => {}, false);
+    else if (!okCar) actionButton(bx, by, 140, 'ТАЧКА ЗАДЕШЕВА', '#ff5c7a', () => { Audio8.sfx.invalid(); toast('ПОТРІБНА ТАЧКА ВІД ' + UI.money(r.carReq), '#ff5c7a'); }, true);
+    else actionButton(bx, by, 140, 'ВИКЛИК!', '#ffc31f', () => { Audio8.sfx.click(); UI.transition('shutter', () => S.onCareer && S.onCareer(r), r.nick + ' VS ТИ'); });
+    if (st === 'open' && okCar && myR < needR) Font.draw(ctx, 'ПРОКАЧАЙ ТАЧКУ', cx0 + 16, by + 7, '#ff7cc6', 1, 'left', null);
+    toastDraw();
+    ctx.restore();
+    particlesAndFx();
+  }
+
   // ---------- jukebox (EA Trax style) ----------
   const fmtTime = (s) => (isFinite(s) && s > 0 ? Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') : '0:00');
   const CTX_LABEL = { menu: 'МЕНЮ', race: 'ГОНКИ', both: 'ВСЮДИ', off: 'ВИМК' };
@@ -730,12 +830,13 @@
     else if (S.screen === 'visual') drawVisual();
     else if (S.screen === 'perf') drawPerf();
     else if (S.screen === 'jukebox') drawJukebox();
+    else if (S.screen === 'career') drawCareer();
     else drawLot();
   }
 
   // ---------- input ----------
   function pointerDown(q) {
-    if (S.screen === 'jukebox') return;
+    if (S.screen === 'jukebox' || S.screen === 'career') return;
     if (q.y > 28 && q.y < 196 && !(S.screen === 'visual' || S.screen === 'perf') || (q.y > 28 && q.y < 196 && q.x < 316 && q.x > 140))
       S.orbit = { x: q.x, y: q.y, yaw: S.cam.yaw, pitch: S.cam.pitch, moved: false };
   }
@@ -760,6 +861,18 @@
     const len = S.screen === 'hub' ? MENU.length : S.screen === 'visual' ? VISUAL.length : U.length;
     const change = S.screen === 'visual' ? pickVisualCat : S.screen === 'perf' ? pickPerfCat : null;
     if (code === 'Escape' || code === 'Backspace') { if (S.screen !== 'hub') go('hub'); return; }
+    if (S.screen === 'career') {
+      const n = careerList().length;
+      if (code === 'ArrowDown' || code === 'ArrowUp') {
+        S.item = Math.max(0, Math.min(n - 1, S.item + (code === 'ArrowDown' ? 1 : -1)));
+        if (S.item < S.scroll) S.scroll = S.item;
+        if (S.item >= S.scroll + CL_ROWS) S.scroll = S.item - CL_ROWS + 1;
+        Audio8.sfx.select();
+      }
+      const r = careerList()[S.item];
+      if ((code === 'Enter' || code === 'Space') && Profile.careerState(r) === 'open' && Profile.carOk(r)) UI.transition('shutter', () => S.onCareer && S.onCareer(r), r.nick + ' VS ТИ');
+      return;
+    }
     if (S.screen === 'jukebox' && window.Music) {
       const n = Music.tracks.length;
       if (code === 'ArrowDown' || code === 'ArrowUp') {
@@ -789,5 +902,5 @@
     }
   }
 
-  window.Garage = { enter, update, draw, pointerDown, pointerMove, pointerUp, key, get screen() { return S.screen; }, set onRace(fn) { S.onRace = fn; } };
+  window.Garage = { enter, update, draw, pointerDown, pointerMove, pointerUp, key, get screen() { return S.screen; }, set onRace(fn) { S.onRace = fn; }, set onCareer(fn) { S.onCareer = fn; } };
 })();

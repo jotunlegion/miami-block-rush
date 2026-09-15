@@ -11,7 +11,7 @@
   let data = null;
 
   const blankUp = () => { const u = {}; Catalog.UPGRADES.forEach((x) => (u[x.id] = 0)); return u; };
-  const blank = () => ({ v: 2, gang: DEFAULT_GANG, cash: START_CASH, current: null, level: 1, cars: {}, stats: { races: 0, wins: 0, earned: 0, best: 0 } });
+  const blank = () => ({ v: 2, gang: DEFAULT_GANG, cash: START_CASH, current: null, level: 1, career: { beaten: [] }, cars: {}, stats: { races: 0, wins: 0, earned: 0, best: 0 } });
 
   function load() {
     try {
@@ -57,43 +57,30 @@
   function spend(n) { if (data.cash < n) return false; data.cash -= n; save(); return true; }
 
   // ---------- stats ----------
-  function stats(id, up) {
-    const s = Object.assign({}, Catalog.byId[id].stats);
-    up = up || blankUp();
-    s.top *= 1 + 0.06 * up.engine + 0.025 * up.gearbox;
-    s.accel *= 1 + 0.12 * up.turbo + 0.05 * up.gearbox;
-    s.hill += 0.06 * up.tires;
-    s.launch += 0.04 * up.tires;
-    s.air *= 1 - 0.05 * up.suspension;
-    s.damp = Math.max(0.2, s.damp - 0.02 * up.suspension);
-    s.armor *= 1 + 0.15 * up.chassis;
-    s.top = Math.round(s.top); s.accel = Math.round(s.accel); s.armor = Math.round(s.armor);
-    return s;
-  }
-
-  function rating(s) {
-    return Math.max(100, Math.round((s.top - 100) * 3.4 + (s.accel - 150) * 0.6 + (s.armor - 80) * 0.7 + (s.hill - 0.5) * 320 + (s.launch - 1.25) * 450 + (1 - s.air) * 600 + 100));
-  }
+  // upgrade effects, rating and prices live in balance.js
+  const stats = (id, up) => Balance.applyUp(Catalog.byId[id].stats, up);
+  const rating = (s) => Balance.rating(s);
 
   // soft NFS-like scale: stock cars still show a readable bar, top builds approach full
   const clamp01 = (v) => Math.max(0.08, Math.min(1, 0.18 + 0.82 * Math.pow(Math.max(0, v), 0.75)));
   function bars(s) {
     return [
-      clamp01((s.top - 120) / (230 - 120)),
-      clamp01((s.accel - 200) / (620 - 200)),
+      clamp01((s.top - 120) / (300 - 120)),
+      clamp01((s.accel - 200) / (1200 - 200)),
       // flight: ramp launch boost (tires) and air gravity (suspension) -> how far jumps carry
-      clamp01(((s.launch - 1.25) / 0.4 + (1.05 - s.air) / 0.3) / 2),
-      clamp01((s.armor - 80) / (260 - 80)),
+      clamp01(((s.launch - 1.25) / 0.5 + (1.05 - s.air) / 0.35) / 2),
+      clamp01((s.armor - 80) / (320 - 80)),
     ];
   }
 
-  const tierMul = (id) => 1 + Catalog.byId[id].price / 40000;
-  const upgradeCost = (id, cat, lvl) => Math.round((Catalog.UPGRADES.find((u) => u.id === cat).cost[lvl] * tierMul(id)) / 50) * 50;
-  const partCost = (id, price) => Math.round((price * (1 + Catalog.byId[id].price / 80000)) / 10) * 10;
+  const upgradeCost = (id, cat, lvl) => Balance.upgradeCost(Catalog.byId[id].price, cat, lvl);
+  const partCost = (id, price) => Balance.partCost(Catalog.byId[id].price, price);
 
   function def(id, up, cu) {
     const car = Catalog.byId[id];
-    return Object.assign({ key: id, name: car.name, map: Custom.build(car, cu) }, stats(id, up));
+    const s = stats(id, up);
+    if (car.phys) s.top = Math.round(s.top * car.phys); // physics-only chassis calibration
+    return Object.assign({ key: id, name: car.name, map: Custom.build(car, cu) }, s);
   }
 
   function playerDef() {
@@ -103,7 +90,7 @@
 
   // rivals drive catalog cars in gang colors, tuned to roughly match the player's rating
   function rivalDef(gi, targetRating, exclude = []) {
-    const pool = Catalog.ALL.filter((c) => !exclude.includes(c.id)).map((c) => ({ c, r: rating(stats(c.id)) }));
+    const pool = Catalog.ALL.filter((c) => !c.bl && !exclude.includes(c.id)).map((c) => ({ c, r: rating(stats(c.id)) }));
     let near = pool.filter((p) => p.r >= targetRating - 120 && p.r <= targetRating + 30);
     if (!near.length) near = pool.slice().sort((a, b) => Math.abs(a.r - targetRating) - Math.abs(b.r - targetRating)).slice(0, 3);
     const pick = near[Math.floor(Math.random() * near.length)].c;
@@ -136,10 +123,28 @@
 
   function levelDone(n) { if (n >= data.level) data.level = n + 1; save(); }
 
+  // ---------- Blacklist career ----------
+  const beaten = (rank) => data.career.beaten.includes(rank);
+  function careerState(r) {
+    if (beaten(r.rank)) return 'beaten';
+    if (r.rank < 20 && !beaten(r.rank + 1)) return 'prev';
+    if (data.level < r.gate) return 'level';
+    return 'open';
+  }
+  // the rival only takes a bet from a car worth at least the previous rival's car
+  const carOk = (r, id = data.current) => !!id && Catalog.byId[id].price >= r.carReq;
+  function careerWin(r) {
+    if (!beaten(r.rank)) data.career.beaten.push(r.rank);
+    const fresh = !data.cars[r.car.id];
+    if (fresh) data.cars[r.car.id] = newEntry(r.car.id);
+    save();
+    return fresh;
+  }
+
   function reset() { data = blank(); save(); }
 
   window.Profile = {
-    load, save, setGang, levelDone, buy, spend, stats, rating, bars, upgradeCost, partCost, def, playerDef, rivalDefs, raceDone, reset, GANG_LOOK,
+    load, save, setGang, levelDone, beaten, careerState, carOk, careerWin, buy, spend, stats, rating, bars, upgradeCost, partCost, def, playerDef, rivalDefs, raceDone, reset, GANG_LOOK,
     get data() { return data; },
     get cash() { return data.cash; },
     entry: (id) => data.cars[id],
