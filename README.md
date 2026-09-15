@@ -2,7 +2,7 @@
 
 Pixel-art 80s street racing where you build the road under your car. Drag Tetris-like blocks into the air, hit ramps, grab nitro, dodge the cops and beat two rival gangs across a Miami sunset. Between races: an NFS-style garage with a 3D voxel turntable, a dealership with 20 legends from the 80s to the 2000s, performance tuning, visual customization and an in-game radio.
 
-**Play:** https://miami-block-rush.pages.dev
+**Play:** https://miami-block-rush.dimabondar2812.workers.dev
 
 - Vanilla JavaScript + HTML5 Canvas, no build step, no dependencies
 - Designed for phones in landscape (16:9), pixel-perfect integer scaling

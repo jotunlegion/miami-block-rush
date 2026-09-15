@@ -520,7 +520,7 @@
     const k = UI.Ease.outCubic(S.enter.k), ix = Math.round(4 - 190 * (1 - k));
     slant(ix, 34, 168, 34, '#12082ae8', accent());
     Font.draw(ctx, car.name, ix + 12, 40, '#ffffff', 1);
-    Font.draw(ctx, car.year + '  ' + (car.desc || 'ТАЧКА ТВОЄЇ БАНДИ'), ix + 12, 52, '#8a7aa8');
+    Music.clipText(ctx, car.year + '  ' + (car.desc || 'ТАЧКА ТВОЄЇ БАНДИ'), ix + 12, 52, 150, '#8a7aa8', 1, true, S.t);
     statPanel(344, 34, s, null);
     Font.draw(ctx, MENU[S.menu.sel].hint, 240, 186, '#d8ccff', 1, 'center');
     carousel(MENU, S.menu, 200, activateMenu);
