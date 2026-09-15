@@ -80,6 +80,10 @@ ffmpeg -y -framerate 60 -i work/final/f%05d.jpg -i run-it-up.mp3 -c:v libx264 -p
 ffmpeg -y -framerate 60 -i work/final/f%05d.jpg -i run-it-up.mp3 -c:v libx264 -preset slow -crf 23 -maxrate 25M -bufsize 50M -pix_fmt yuv420p -c:a aac -b:a 256k -shortest -movflags +faststart miami-block-rush-run-it-up_upload.mp4
 ```
 
+Verified after recovery: `--from 998 --to 1300` from this folder is pixel-identical to the original final frames.
+Some shots (the END idle cars) carry state across frames within one page, so `--frames` single-frame previews can
+differ slightly from a sequential range render. For exact output always render a continuous range.
+
 Experiments (`experiments/`): `node lab.js experiments/lab2.js` runs a physics sweep in the page; `smoke.html` / `smoke.js`
 was the first check that the game modules draw headless in puppeteer (`smoke.png`).
 
