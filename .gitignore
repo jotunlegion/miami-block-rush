@@ -1,0 +1,10 @@
+# local-only recording bot
+bot.html
+js/bot.js
+# tooling
+node_modules/
+.wrangler/
+.claude/
+*.log
+.DS_Store
+Thumbs.db
