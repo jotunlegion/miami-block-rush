@@ -3,6 +3,7 @@
 Pixel-art 80s street racing where you build the road under your car. Drag Tetris-like blocks into the air, hit ramps, grab nitro, dodge the cops and beat two rival gangs across a Miami sunset. Between races: an NFS-style garage with a 3D voxel turntable, a dealership with 20 legends from the 80s to the 2000s, performance tuning, visual customization and an in-game radio.
 
 **Play:** https://miami-block-rush.dimabondar2812.workers.dev
+**Neon mode test scene:** https://miami-block-rush.dimabondar2812.workers.dev/neon
 
 - Neon levels (4, 9, 14, ...): no blocks - you paint the road with your finger from a limited can of paint
 - Vanilla JavaScript + HTML5 Canvas, no build step, no dependencies
@@ -14,7 +15,12 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 Open `index.html` in a browser, or serve the folder with any static server.
 `neon.html` is a test scene for the neon painting mode: it drops straight into a painted level
 and shows the paint balance (how much paint the gaps to the next safety island need vs how much
-paint and how many cans are left).
+paint and how many cans are left), with buttons to switch neon level and to empty the tank.
+
+## Deploy
+
+`npx wrangler deploy` publishes the folder as a Cloudflare Workers static-assets site.
+`.assetsignore` keeps the docs, the tools and the local-only bot out of the build.
 
 ## Structure
 

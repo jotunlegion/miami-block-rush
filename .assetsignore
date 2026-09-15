@@ -1,0 +1,12 @@
+# not part of the playable build
+.git
+.gitignore
+.assetsignore
+wrangler.jsonc
+.wrangler
+README.md
+docs
+tools
+# local-only recording bot
+bot.html
+js/bot.js
