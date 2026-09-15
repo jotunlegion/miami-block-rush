@@ -98,6 +98,21 @@
     }
 
     get grounded() { return this.wheels.some((w) => w.contact); }
+
+    // The jump is the way out of a wedge, so it must not need wheel contact: a car nose down
+    // on a thin painted line has its suspension rays pointing sideways and touches nothing.
+    // Any part of the body leaning on the road counts, as long as it is barely moving.
+    get canJump() {
+      if (this.state !== 'drive' || this.jumpCd > 0) return false;
+      if (this.grounded) return true;
+      if (Math.hypot(this.vx, this.vy) > 50) return false;
+      const c = Math.cos(this.a), s = Math.sin(this.a);
+      for (const [lx, ly] of this.hull) {
+        const px = this.x + lx * c - ly * s, py = this.y + lx * s + ly * c;
+        if (isSolid(this.w, px, py) || isSolid(this.w, px, py + 4)) return true;
+      }
+      return false;
+    }
     get active() { return this.state === 'drive' || this.state === 'hover' || this.state === 'ready'; }
 
     toWorld(lx, ly) {
@@ -147,7 +162,14 @@
           }
         }
         for (const n of this.w.nitros) {
-          if (n.taken || this.nitro >= 3) continue;
+          if (n.taken) continue;
+          // on a neon level the canisters are paint cans, and only the player can use them
+          if (this.w.draw) {
+            if (!this.isPlayer) continue;
+            if (Math.abs(n.x - this.x) < 17 && Math.abs(n.y - this.y) < 13) { n.taken = true; Game.onPaintCan(n); }
+            continue;
+          }
+          if (this.nitro >= 3) continue;
           if (Math.abs(n.x - this.x) < 17 && Math.abs(n.y - this.y) < 13) {
             n.taken = true; this.nitro++;
             Particles.text(n.x, n.y - 8, 'НІТРО ' + this.nitro + '/3', '#9fdcff');
@@ -341,8 +363,10 @@
     }
 
     jump() {
-      if (this.state !== 'drive' || !this.grounded || this.jumpCd > 0) return false;
-      const ux = Math.sin(this.a), uy = -Math.cos(this.a);
+      if (!this.canJump) return false;
+      let ux = Math.sin(this.a), uy = -Math.cos(this.a);
+      // tipped over on its nose or roof: hop straight up and a little forward instead of sideways
+      if (uy > -0.6) { ux = 0.35; uy = -0.94; }
       this.vy = Math.min(this.vy, 0) + uy * 125;
       this.vx = Math.max(0, this.vx + ux * 125);
       this.va *= 0.3; this.jumpCd = 0.6; this.jumpT = 0.9; this.wasGrounded = false;

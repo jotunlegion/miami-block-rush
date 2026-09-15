@@ -5,8 +5,8 @@
     1: 'НАВЧАННЯ',
     2: 'ПЕРШИЙ ВИЇЗД',
     3: 'СУПЕРНИК',
-    4: 'КОПИ НА ХВОСТІ',
-    5: 'РУХОМІ ПЛАТФОРМИ',
+    4: 'НЕОНОВА ТРАСА',
+    5: 'КОПИ І ПЛАТФОРМИ',
     6: 'ДВІ БАНДИ',
     8: 'ПОДВІЙНИЙ ПАТРУЛЬ',
     15: 'БЕЗ ОСТРОВІВ',
@@ -16,14 +16,34 @@
     1: ['ТВОЯ МАШИНА ЇДЕ САМА', 'ТВОЯ СПРАВА - БУДУВАТИ ДОРОГУ'],
     2: ['ТАП ПО БЛОКУ В ПАНЕЛІ - ПОВОРОТ', 'БЛОК СТАВИТЬСЯ ПОВЕРХ БУДЬ-ЯКОГО БЛОКУ', 'ДОВГІ ОСТРОВИ З ВІРАЖАМИ - БЕЗПЕЧНІ', '3 БАЛОНИ = НІТРО X3'],
     3: ['НОВИЙ СУПЕРНИК!', 'ПЕРЕМАГАЄ ТОЙ, У КОГО БІЛЬШЕ ГРОШЕЙ', 'ФІНІШ: +1000 / +500 / +200'],
-    4: ['ЗА ТОБОЮ КОПИ!', 'ДОТИК ПОЛІЦІЇ - ШТРАФ $50', 'НЕМАЄ ГРОШЕЙ - АРЕШТ'],
-    5: ['ЗЕЛЕНІ ПЛАТФОРМИ ТЯГНИ ВГОРУ/ВНИЗ', 'ВОНИ НЕ ВИТРАЧАЮТЬ БЛОКИ'],
+    4: ['БЛОКІВ НЕМАЄ - МАЛЮЙ ДОРОГУ ПАЛЬЦЕМ', 'ФАРБИ НА 5 КОРПУСІВ, БАЛОН = +20%', 'ЛІНІЯ ЛЯГАЄ ПОВЕРХ ЧОГО ЗАВГОДНО', 'АЛЕ ГРОШІ Й БАЛОНИ ПІД НЕЮ ЗГОРЯТЬ'],
+    5: ['ЗА ТОБОЮ КОПИ! ДОТИК - ШТРАФ $50', 'ЗЕЛЕНІ ПЛАТФОРМИ ТЯГНИ ВГОРУ/ВНИЗ', 'НЕМАЄ ГРОШЕЙ - АРЕШТ'],
     6: ['ТЕПЕР ДВІ БАНДИ-СУПЕРНИЦІ', 'ПЕРЕМАГАЄ НАЙБАГАТШИЙ'],
     8: ['ДРУГА ПАТРУЛЬНА МАШИНА', 'ДОТИК - ШТРАФ $50, БЕЗ ГРОШЕЙ - АРЕШТ'],
     15: ['ОСТРОВІВ БЕЗПЕКИ БІЛЬШЕ НЕМАЄ', 'ВСЯ ДОРОГА - ТВОЯ'],
     20: ['ПОЛІЦЕЙСЬКИЙ ВЕРТОЛІТ!', 'ВІН ПІРНАЄ І ЗБИВАЄ МАШИНИ', 'КРІЗЬ НЬОГО БЛОКИ НЕ СТАВЛЯТЬСЯ'],
   };
   const GENERIC = ['ВИКЛАДАЙ ДОРОГУ ЗАЗДАЛЕГІДЬ!', 'ПОМИЛИВСЯ? СТАВ БЛОК ПОВЕРХ СТАРОГО', 'БЛОК ПОВЕРХ ГРОШЕЙ ЧИ НІТРО ЇХ ЗНИЩИТЬ'];
+  const NEON_TIPS = ['НЕОНОВА ТРАСА: МАЛЮЙ ДОРОГУ ПАЛЬЦЕМ', 'ЛІНІЯ ЇСТЬ ФАРБУ - БАЛОН ДАЄ +20%', 'ЛІНІЯ ПОВЕРХ ГРОШЕЙ ЧИ БАЛОНА ЇХ ПАЛИТЬ', 'РОЗБИВСЯ БЕЗ ФАРБИ? ПОВЕРНУТЬ ПІВБАКА'];
+
+  // neon levels: the 4th, then every fifth one
+  const isNeon = (n) => n >= 4 && (n - 4) % 5 === 0;
+
+  // paint economy: a full tank is about 4.5 car bodies of line, one can is a fifth of it.
+  // waste is how much longer than the bare gap a real player's line ends up, floor is the
+  // reserve the generator never lets the tank fall below - that is the room for mistakes.
+  function paintCfg(n) {
+    const d = Math.min(3, Math.round((n - 4) / 5)); // 0 on level 4, harder later
+    return {
+      max: 144,                          // a full tank is about 4.5 car bodies of line
+      can: 0.2,                          // one can refills a fifth of it
+      waste: [1.8, 1.7, 1.6, 1.5][d],    // paint a hand drawn bridge really eats, vs the bare gap
+      retry: [1.55, 1.45, 1.35, 1.3][d], // tank before every gap: that many bridges, so a botched
+      gap: [2, d >= 2 ? 3 : 2],          // one still leaves enough to reach the safety island
+      rise: 1 + Math.min(1, d),
+      ledge: [9 - d, 15 - d],
+    };
+  }
 
   function config(n) {
     n = Math.max(1, Math.floor(n || 1));
@@ -41,15 +61,19 @@
     const k = Math.max(0, (15 - n) / 13);
     const count = k > 0 ? Math.max(1, Math.round(5 * k)) : 0;
     const len = Math.max(6, Math.round((field / 20) * (0.4 + 0.6 * k)));
-    const rivals = n >= 6 ? 2 : n >= 3 ? 1 : 0;
+    const neon = isNeon(n);
+    // a neon level is always one on one: the paint is challenge enough
+    const rivals = neon ? 1 : n >= 6 ? 2 : n >= 3 ? 1 : 0;
     const cash = Balance.cashMul(n), scale = (v) => Math.round((v * cash) / 10) * 10;
     return {
       cash,
       n, cols, rivals,
+      draw: neon,
+      paint: neon ? paintCfg(n) : null,
       name: UNLOCKS[n] || DISTRICTS[(n - 7) % DISTRICTS.length],
       tutorial: false,
-      islands: [count, count ? len : 0],
-      police: n >= 8 ? 2 : n >= 4 ? 1 : 0,
+      islands: neon ? [Math.max(2, count), Math.max(10, len)] : [count, count ? len : 0],
+      police: neon ? (n >= 9 ? 1 : 0) : n >= 8 ? 2 : n >= 5 ? 1 : 0,
       platforms: n >= 5,
       heli: n >= 20,
       nitro: true,
@@ -58,7 +82,7 @@
       winBonus: rivals ? scale(500) : 0,
       ai: { delay: Math.max(0.45, 0.72 - (n - 3) * 0.015), mistake: Math.max(0.03, 0.1 - (n - 3) * 0.004) },
       policeSpeed: Math.min(1.15, 0.8 + Math.max(0, n - 4) * 0.02),
-      tips: TIPS[n] || GENERIC,
+      tips: TIPS[n] || (neon ? NEON_TIPS : GENERIC),
     };
   }
 
@@ -66,7 +90,7 @@
   function boss(r) {
     const L = config(r.gate);
     return Object.assign({}, L, {
-      boss: r, rivals: 1, police: 0, heli: false, platforms: true,
+      boss: r, rivals: 1, police: 0, heli: false, platforms: true, draw: false, paint: null,
       name: 'ЧОРНИЙ СПИСОК #' + r.rank,
       bonus: [Math.round((1500 * L.cash) / 10) * 10, 0], winBonus: 0,
       ai: { delay: +(0.55 - 0.012 * r.i).toFixed(3), mistake: +(0.06 - 0.0025 * r.i).toFixed(4), look: 1.7 },
@@ -74,5 +98,5 @@
     });
   }
 
-  window.Levels = { config, boss };
+  window.Levels = { config, boss, isNeon };
 })();

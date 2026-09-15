@@ -68,6 +68,7 @@
   const Game = {
     state: 'title', time: 0, selected: 0, buttons: [], shakeAmt: 0, camX: 0,
     world: null, cars: [], police: [], ais: [], tray: [], drag: null, banner: null, acc: 0,
+    paint: 0, paintMax: 0, ink: null, dryT: 0,
 
     shake(n) { this.shakeAmt = Math.max(this.shakeAmt, n); },
 
@@ -100,12 +101,13 @@
       this.heli = L.heli ? new Helicopter(this) : null;
       this.tut = L.tutorial ? { bridged: false } : null;
       this.boss = null;
-      this.tray = [0, 1, 2].map(() => ({ piece: L.tutorial ? { p: 0, v: 0 } : this.nextPiece(), cd: 0 }));
+      this.tray = L.draw ? [] : [0, 1, 2].map(() => ({ piece: L.tutorial ? { p: 0, v: 0 } : this.nextPiece(), cd: 0 }));
+      Paint.reset(this);
       this.resetRace();
     },
 
     resetRace() {
-      this.drag = null; this.grab = null; this.platT = 3; this.banner = null;
+      this.drag = null; this.grab = null; this.ink = null; this.platT = 3; this.banner = null;
       this.count = 3.99; this.lastBeep = 4;
       this.raceTime = 0; this.finished = 0; this.endTimer = Infinity; this.acc = 0;
       this.camX = this.player.x - 130;
@@ -129,6 +131,7 @@
       this.police = []; this.heli = null; this.tut = null;
       this.boss = r;
       this.tray = [0, 1, 2].map(() => ({ piece: this.nextPiece(), cd: 0 }));
+      Paint.reset(this);
       this.resetRace();
     },
 
@@ -147,6 +150,7 @@
 
     tryPlace(shape, col, row, owner, replace = false) {
       if (!World.canPlace(this.world, shape, col, row, this.rects(!replace), replace)) return false;
+      if (this.world.draw) return this.paintShape(shape, col, row, owner);
       if (replace) { this.shatterUnder(shape, col, row, owner); this.clearPickups(shape, col, row); }
       World.place(this.world, shape, col, row, owner);
       const pal = Art.teamPal(owner);
@@ -154,6 +158,26 @@
         if (t) Particles.spark((col + dx) * CELL + 8, (row + dy) * CELL + 8, 2, [pal.hi, '#ffffff'], 40);
       }));
       return true;
+    },
+
+    // on a neon level the rivals paint too: the top surface of their piece becomes a line
+    paintShape(shape, col, row, owner) {
+      const pts = [];
+      for (let dx = 0; dx < shape[0].length; dx++)
+        for (let dy = 0; dy < shape.length; dy++)
+          if (shape[dy][dx]) { pts.push([(col + dx) * CELL + 8, (row + dy) * CELL + 4]); break; }
+      if (pts.length < 2) return false;
+      for (let i = 1; i < pts.length; i++) World.inkAdd(this.world, pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], owner);
+      const pal = Art.teamPal(owner);
+      for (const p of pts) Particles.spark(p[0], p[1], 1, [pal.hi, '#ffffff'], 40);
+      return true;
+    },
+
+    popPickup(p) {
+      p.taken = true;
+      const cols = p.value ? ['#3fbf5a', '#a8f59a', '#ffffff'] : this.world.draw ? [Art.teamPal(this.gi).hi, '#ffffff'] : ['#29d9ff', '#ffffff'];
+      Particles.spark(p.x, p.y, 10, cols, 70);
+      for (let k = 0; k < 4; k++) Particles.smoke(p.x + (Math.random() - 0.5) * 8, p.y);
     },
 
     // money and nitro under a new piece are lost: they pop and vanish
@@ -167,10 +191,27 @@
       let lost = 0;
       for (const p of w.bags.concat(w.nitros)) {
         if (p.taken || !covered(p)) continue;
-        p.taken = true; lost++;
-        Particles.spark(p.x, p.y, 10, p.value ? ['#3fbf5a', '#a8f59a', '#ffffff'] : ['#29d9ff', '#ffffff'], 70);
-        for (let k = 0; k < 4; k++) Particles.smoke(p.x + (Math.random() - 0.5) * 8, p.y);
+        this.popPickup(p); lost++;
       }
+      if (lost) Audio8.sfx.invalid();
+      return lost;
+    },
+
+    // the same rule for a painted line: it goes over anything, and burns the pickups it touches
+    burnPickups(x0, y0, x1, y1) {
+      const w = this.world, R = World.INK_R + 5;
+      const dx = x1 - x0, dy = y1 - y0, inv = 1 / (dx * dx + dy * dy || 1);
+      const lo = Math.min(x0, x1) - R - 6, hi = Math.max(x0, x1) + R + 6;
+      const hit = (p) => {
+        if (p.taken || p.x < lo || p.x > hi) return false;
+        let t = ((p.x - x0) * dx + (p.y - y0) * dy) * inv;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const ex = p.x - x0 - dx * t, ey = p.y - y0 - dy * t;
+        return ex * ex + ey * ey <= R * R;
+      };
+      let lost = 0;
+      for (const p of w.bags) if (hit(p)) { this.popPickup(p); lost++; }
+      for (const p of w.nitros) if (hit(p)) { this.popPickup(p); lost++; }
       if (lost) Audio8.sfx.invalid();
       return lost;
     },
@@ -256,6 +297,7 @@
       const cut = Math.round((1 - Balance.deathMul(car.deaths)) * 100);
       Particles.text(car.x, car.y - 26, car.deaths <= 9 ? '-10% ГРОШЕЙ' : 'МІНІМУМ 10%', '#ff5c7a');
       this.penaltyFlash = 1.2;
+      if (this.level.draw) Paint.onDeath(this, car);
       return cut;
     },
 
@@ -275,6 +317,8 @@
       Audio8.setEngine(0, false); Audio8.setSiren(0);
       if (this.win) Audio8.sfx.finish();
     },
+
+    onPaintCan(n) { Paint.pickCan(this, n); },
 
     slotRect(i) { return { x: 240 + (i - 1) * 84 - 38, y: TRAY_Y + 3, w: 76, h: 44 }; },
 
@@ -338,8 +382,9 @@
       if (this.heli) this.heli.update(dt, this);
       for (const c of this.cars) if (c.fineCd > 0) c.fineCd -= dt;
       if (this.tut) this.updateTutorial();
+      if (this.level.draw) Paint.update(dt, this);
       Particles.update(dt, w);
-      for (let i = 0; i < w.flash.length; i++) if (w.flash[i] > 0) w.flash[i] = Math.max(0, w.flash[i] - dt * 3);
+      for (let i = 0; i < w.flash.length; i++) if (w.flash[i] > 0) w.flash[i] = Math.max(0, w.flash[i] - dt * 10);
       for (const s of this.tray) {
         if (s.cd > 0) { s.cd -= dt; if (s.cd <= 0) { s.cd = 0; s.piece = this.nextPiece(); } }
       }
@@ -420,11 +465,17 @@
       if ((this.state === 'race' || this.state === 'countdown') && this.player.state !== 'busted') {
         const inR = (r) => q.x >= r.x && q.x < r.x + r.w && q.y >= r.y && q.y < r.y + r.h;
         if (inR(BTN_JUMP)) { this.player.jump(); this.pressJ = 0.15; return; }
-        if (inR(BTN_NITRO)) { if (this.player.useNitro()) this.shake(2); else Audio8.sfx.invalid(); this.pressN = 0.15; return; }
+        if (!this.level.draw && inR(BTN_NITRO)) { if (this.player.useNitro()) this.shake(2); else Audio8.sfx.invalid(); this.pressN = 0.15; return; }
         if (!this.grab && q.y < TRAY_Y) {
           const wx = q.x + this.camX;
           const pl = this.world.platforms.find((p) => wx >= p.x - 8 && wx < p.x + p.w + 8 && q.y >= p.y - 12 && q.y < p.y + 28);
           if (pl) { this.grab = { id: e.pointerId, p: pl, off: q.y - pl.y, ty: pl.y }; pl.held = true; Audio8.sfx.grab(); return; }
+        }
+        if (this.level.draw) {
+          // a stroke never starts on a HUD button, so the sound and track taps still work
+          const onBtn = this.buttons.some((b) => q.x >= b.x && q.x < b.x + b.w && q.y >= b.y && q.y < b.y + b.h);
+          if (q.y < TRAY_Y && !onBtn) Paint.down(this, e.pointerId, q);
+          return;
         }
         for (let i = 0; i < 3; i++) {
           const r = this.slotRect(i);
@@ -440,6 +491,7 @@
       const q = this.toSafe(e);
       if (this.state === 'garage') { Garage.pointerMove(q); return; }
       if (this.grab && e.pointerId === this.grab.id) this.grab.ty = q.y - this.grab.off;
+      if (this.ink && e.pointerId === this.ink.id) { Paint.move(this, q); return; }
       if (!this.drag || e.pointerId !== this.drag.id) return;
       this.drag.sx = q.x; this.drag.sy = q.y;
       if (Math.hypot(q.x - this.drag.x0, q.y - this.drag.y0) > 6) this.drag.moved = true;
@@ -447,7 +499,8 @@
 
     pointerUp(e) {
       const q = this.toSafe(e);
-      if (this.grab && e.pointerId === this.grab.id) { this.releaseGrab(); Audio8.sfx.place(); return; }
+      if (this.grab && e.pointerId === this.grab.id) { this.releaseGrab(); Audio8.sfx.place(); this.draw(); return; }
+      if (this.ink && e.pointerId === this.ink.id) { Paint.up(this); return; }
       if (this.drag && e.pointerId !== this.drag.id) return;
       if (this.drag) {
         const d = this.drag, slot = this.tray[d.slot];
@@ -463,6 +516,7 @@
           } else Audio8.sfx.invalid();
         }
         this.drag = null;
+        this.draw(); // show the piece now instead of waiting for the next frame
         return;
       }
       if (this.state === 'title') {
@@ -528,6 +582,7 @@
         Font.draw(ctx, 'ПОВЕРНИ ТЕЛЕФОН', vw / 2, vh / 2 - 12, '#ff3ea5', 2, 'center');
         Font.draw(ctx, 'ГОРИЗОНТАЛЬНО', vw / 2, vh / 2 + 8, '#29e0d0', 2, 'center');
       }
+      if (window.Debug) Debug.draw(ctx, { vw, vh, ox, oy, time: this.time, button: (x, y, w, h, l, c, fn) => this.button(x, y, w, h, l, c, fn) });
       sctx.imageSmoothingEnabled = false;
       sctx.drawImage(buf, 0, 0, vw * scale, vh * scale);
     },
@@ -614,6 +669,7 @@
           ctx.drawImage(Art.tile(ty, w.owner[i]), X, Y);
           if (w.flash[i] > 0) { ctx.globalAlpha = w.flash[i]; ctx.drawImage(tintTile(ty, '#ffffff'), X, Y); ctx.globalAlpha = 1; }
         }
+      if (w.ink) Paint.drawInk(ctx, w, cx, t, cx - ox, cx - ox + vw);
       for (const pl of w.platforms) {
         const X = Math.round(pl.x - cx), Y = Math.round(pl.y);
         if (X > vw || X + pl.w < -ox - 16) continue;
@@ -632,7 +688,7 @@
         const X = Math.round(n.x - 4 - cx);
         if (X < -ox - 12 || X > vw) continue;
         const bob = Math.round(Math.sin(t * 3.5 + n.t) * 1.5);
-        ctx.drawImage(Art.nitro, X, Math.round(n.y - 6 + bob));
+        ctx.drawImage(w.draw ? Paint.canImg(this.gi) : Art.nitro, X, Math.round(n.y - 6 + bob));
         if (Math.floor(t * 6 + n.t) % 4 === 0) { ctx.fillStyle = '#9fdcff'; ctx.fillRect(X - 1, Math.round(n.y - 7 + bob), 1, 1); }
       }
       for (const b of w.bags) {
@@ -675,6 +731,7 @@
           }
         }));
       }
+      if (this.ink) Paint.drawTip(ctx, this, cx, t);
       ctx.restore();
     },
 
@@ -686,6 +743,7 @@
       ctx.fillStyle = pal.dark; ctx.fillRect(0, oy + TRAY_Y + 1, vw, 1);
       ctx.save(); ctx.translate(ox, oy);
       this.drawControls(pal);
+      if (this.level.draw) Paint.drawGauge(ctx, this, 84, TRAY_Y + 5, 390, 40, this.time);
       this.tray.forEach((s, i) => {
         const r = this.slotRect(i);
         const dragging = this.drag && this.drag.slot === i && this.drag.moved;
@@ -717,7 +775,7 @@
         ctx.fillRect(r.x, r.y, r.w, 1); ctx.fillRect(r.x, r.y + r.h - 1, r.w, 1); ctx.fillRect(r.x, r.y, 1, r.h); ctx.fillRect(r.x + r.w - 1, r.y, 1, r.h);
         ctx.fillStyle = '#ffffff22'; ctx.fillRect(r.x + 1, r.y + 1, r.w - 2, 1);
       };
-      const J = BTN_JUMP, canJ = p.state === 'drive' && p.grounded && !(p.jumpCd > 0);
+      const J = BTN_JUMP, canJ = p.canJump;
       box(J, canJ ? pal.main : '#3d2f7a', this.pressJ > 0 ? '#3a1a66' : '#1f0c3e');
       const ax = J.x + J.w / 2, ay = J.y + 7;
       ctx.fillStyle = canJ ? pal.hi : '#5a4a78';
@@ -725,6 +783,7 @@
       ctx.fillRect(ax - 1, ay + 5, 3, 6);
       Font.draw(ctx, 'СТРИБОК', ax, J.y + 27, canJ ? '#ffffff' : '#8a7aa8', 1, 'center');
 
+      if (this.level.draw) return;
       const N = BTN_NITRO, full = p.nitro >= 3, on = p.boost > 0;
       const glow = full && Math.floor(t * 4) % 2 === 0;
       box(N, on || full ? (glow ? '#ffffff' : '#29d9ff') : '#3d2f7a', this.pressN > 0 ? '#12305a' : '#1f0c3e');
@@ -796,7 +855,7 @@
         Font.draw(ctx, this.boss ? L.name : 'РІВЕНЬ ' + L.n + ' - ' + L.name, tx, 98, '#ffffff', 2, 'center', '#12082a');
         L.tips.forEach((s, i) => Font.draw(ctx, s, tx, 122 + i * 12, i === 0 ? '#ffc31f' : '#d8ccff', 1, 'center'));
       }
-      if (p.state === 'hover') Font.draw(ctx, 'БУДУЙ ПІД СОБОЮ! ' + Math.ceil(p.timer), 240, 30, '#29e0d0', 1, 'center');
+      if (p.state === 'hover') Font.draw(ctx, (this.level.draw ? 'МАЛЮЙ ПІД СОБОЮ! ' : 'БУДУЙ ПІД СОБОЮ! ') + Math.ceil(p.timer), 240, 30, '#29e0d0', 1, 'center');
       if (this.state === 'race' && p.active) {
         const near = this.police.some((q) => p.x - q.x < 150);
         if (near && Math.floor(t * 4) % 2) Font.draw(ctx, '< ПОЛІЦІЯ!', 8, 40, '#ff2a3a', 1, 'left');
@@ -912,19 +971,31 @@
       });
       Font.draw(ctx, 'ЗАРОБЛЕНО: ' + UI.money(this.earned) + (this.win && L.winBonus ? ' (+' + L.winBonus + ' ЗА ПЕРЕМОГУ)' : ''), 240, 178, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
       const main = Art.TEAM[this.gi].main;
-      if (this.win) this.button(110, 192, 124, 22, 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, () => UI.transition('shutter', () => this.startRace(L.n + 1), 'РІВЕНЬ ' + (L.n + 1)));
-      else this.button(130, 192, 100, 22, 'ЩЕ РАЗ', main, () => UI.transition('shutter', () => this.startRace(L.n), 'РІВЕНЬ ' + L.n));
-      this.button(250, 192, 100, 22, 'В ГАРАЖ', '#9d8cff', () => UI.transition('shutter', () => this.toGarage({ earned: this.earned }), 'ГАРАЖ'));
+      const again = () => UI.transition('shutter', () => this.startRace(L.n), 'РІВЕНЬ ' + L.n);
+      const garage = () => UI.transition('shutter', () => this.toGarage({ earned: this.earned }), 'ГАРАЖ');
+      if (this.win) {
+        this.button(36, 192, 150, 22, 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, () => UI.transition('shutter', () => this.startRace(L.n + 1), 'РІВЕНЬ ' + (L.n + 1)));
+        this.button(194, 192, 114, 22, 'ПЕРЕГРАТИ', '#29e0d0', again);
+        this.button(316, 192, 128, 22, 'В ГАРАЖ', '#9d8cff', garage);
+      } else {
+        this.button(130, 192, 100, 22, 'ЩЕ РАЗ', main, again);
+        this.button(250, 192, 100, 22, 'В ГАРАЖ', '#9d8cff', garage);
+      }
       ctx.restore();
     },
   };
 
   // in bot.html the race is driven by the bot only; real touches still work in menus
   const botOwnsInput = () => window.BOT_MODE && (Game.state === 'race' || Game.state === 'countdown');
-  screen.addEventListener('pointerdown', (e) => { e.preventDefault(); if (!botOwnsInput()) Game.pointerDown(e); });
+  screen.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    // keep the whole drag on this element: no gesture hand-off, no lost pointerup
+    if (screen.setPointerCapture) { try { screen.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } }
+    if (!botOwnsInput()) Game.pointerDown(e);
+  });
   screen.addEventListener('pointermove', (e) => { e.preventDefault(); if (!botOwnsInput()) Game.pointerMove(e); });
   screen.addEventListener('pointerup', (e) => { e.preventDefault(); if (!botOwnsInput()) Game.pointerUp(e); });
-  screen.addEventListener('pointercancel', () => { Game.drag = null; if (Game.grab) Game.releaseGrab(); });
+  screen.addEventListener('pointercancel', () => { Game.drag = null; Game.ink = null; if (Game.grab) Game.releaseGrab(); });
   window.addEventListener('keydown', (e) => {
     if (Game.state === 'garage') { Garage.key(e.code); if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault(); return; }
     if (Game.state !== 'race' || !Game.player || window.BOT_MODE) return;

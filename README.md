@@ -4,6 +4,7 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 
 **Play:** https://miami-block-rush.dimabondar2812.workers.dev
 
+- Neon levels (4, 9, 14, ...): no blocks - you paint the road with your finger from a limited can of paint
 - Vanilla JavaScript + HTML5 Canvas, no build step, no dependencies
 - Designed for phones in landscape (16:9), pixel-perfect integer scaling
 - Ukrainian interface
@@ -11,12 +12,16 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 ## Run locally
 
 Open `index.html` in a browser, or serve the folder with any static server.
+`neon.html` is a test scene for the neon painting mode: it drops straight into a painted level
+and shows the paint balance (how much paint the gaps to the next safety island need vs how much
+paint and how many cans are left).
 
 ## Structure
 
 - `js/game.js` - game states, input, race HUD, rendering
 - `js/car.js` - car physics, voxel destruction, particles
-- `js/world.js` - grid, pieces, level generation
+- `js/world.js` - grid, pieces, level generation, painted ink
+- `js/paint.js` - neon painting mode: the paint tank, strokes, cans, gauge
 - `js/ai.js` - rival builders and police
 - `js/garage.js`, `js/voxel3d.js` - garage, dealership, tuning, 3D voxel renderer
 - `js/catalog.js`, `js/custom.js`, `js/profile.js` - cars, parts, customization, save data

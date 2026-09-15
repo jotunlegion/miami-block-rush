@@ -1,6 +1,10 @@
 // NPC path builders and police pursuit (police are real physics cars that build or reuse paths)
 (function () {
   const { CELL, PIECES, cellAt } = World;
+  // on a neon level the road is painted ink, not grid cells, so probe the cell for real
+  const filled = (w, c, r) => (w.ink
+    ? World.isSolid(w, c * CELL + 8, r * CELL + 3) || World.isSolid(w, c * CELL + 8, r * CELL + 9) || World.isSolid(w, c * CELL + 8, r * CELL + 14)
+    : cellAt(w, c, r));
   const SHAPES = {
     I4: PIECES[0].v[0], I3: PIECES[1].v[0], I2: PIECES[2].v[0],
     RAMP_UP: PIECES[3].v[0], RAMP_DOWN: PIECES[3].v[1], GLIDE: PIECES[4].v[0],
@@ -15,7 +19,7 @@
 
     hasSupport(col, sr) {
       const w = this.game.world;
-      return cellAt(w, col, sr) || cellAt(w, col, sr - 1) || cellAt(w, col, sr + 1);
+      return filled(w, col, sr) || filled(w, col, sr - 1) || filled(w, col, sr + 1);
     }
 
     update(dt) {
@@ -30,8 +34,8 @@
       let sr = c.grounded ? Math.round((c.y + 8) / CELL) : Math.floor((c.y + 8) / CELL) + 1;
       sr = Math.max(3, Math.min(11, sr));
       // unstick: hop over a wall; use full nitro on a clear stretch
-      if (c.state === 'drive' && c.grounded && Math.abs(c.vx) < 30 && cellAt(w, Math.floor((c.x + 22) / CELL), sr - 1)) { c.jump(); return; }
-      if (!c.isPolice && c.nitro >= 3 && c.grounded) {
+      if (c.state === 'drive' && c.grounded && Math.abs(c.vx) < 30 && filled(w, Math.floor((c.x + 22) / CELL), sr - 1)) { c.jump(); return; }
+      if (!c.isPolice && !w.draw && c.nitro >= 3 && c.grounded) {
         let clear = true;
         for (let k = 1; k <= 14 && clear; k++) if (!this.hasSupport(Math.floor(c.x / CELL) + k, sr)) clear = false;
         if (clear) c.useNitro();
