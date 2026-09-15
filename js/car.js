@@ -74,7 +74,7 @@
       this.x = x; this.y = y; this.vx = 0; this.vy = 0; this.a = 0; this.va = 0;
       this.money = 0; this.bonus = 0; this.place = 0;
       this.state = 'ready'; this.timer = 0;
-      this.wrecks = 0; this.falls = 0;
+      this.wrecks = 0; this.falls = 0; this.deaths = 0;
       this.nitro = 0; this.boost = 0; this.jumpCd = 0;
       const k = (this.m * GRAV) / (2 * this.g.restComp);
       this.k = k;
@@ -334,7 +334,8 @@
       }
       Particles.spark(this.x, this.y, 40, ['#fff3a0', '#ffc31f', '#ff6a1f', '#ff3e8a']);
       for (let k = 0; k < 10; k++) Particles.smoke(this.x + (Math.random() - 0.5) * 20, this.y);
-      this.state = 'wreck'; this.timer = 1.5; this.wrecks++; this.boost = 0;
+      this.state = 'wreck'; this.timer = 1.5; this.wrecks++; this.deaths++; this.boost = 0;
+      if (window.Game && Game.onDeath) Game.onDeath(this);
       this.dirty = true;
       if (this.isPlayer) { Audio8.sfx.crash(); if (window.Game) Game.shake(6); }
     }
@@ -375,7 +376,8 @@
 
     fall(game) {
       if (this.state === 'fell') return;
-      this.state = 'fell'; this.timer = 0.7; this.falls++;
+      this.state = 'fell'; this.timer = 0.7; this.falls++; this.deaths++;
+      if (window.Game && Game.onDeath) Game.onDeath(this);
       if (this.isPlayer) Audio8.sfx.fall();
     }
 

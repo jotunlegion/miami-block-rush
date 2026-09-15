@@ -43,10 +43,15 @@
   // ---------- level economy ----------
   // cash multiplier on bags and finish bonuses: later levels pay more
   const cashMul = (n) => 1 + 0.02 * (Math.max(1, n) - 1);
-  // measured with an AI stand-in for an average player, 10 races per level (x1 cash):
-  // L2 $2225, L10 $3845, L20 $4395, L30 $5085, L60 $5475 per attempt; win rate ~0.7
-  const earnPerAttempt = (n) => (n <= 1 ? 850 : Math.min(5300, 2500 + 90 * n) * cashMul(n));
-  const WIN_RATE = 0.7;
+  // measured with an AI stand-in for an average player, 10 races per level (x1 cash, before death penalties):
+  // L2 $2225, L10 $3845, L20 $4395, L30 $5085, L60 $5475 per attempt
+  // every death (fall or wreck) takes 10% off the final sum, but at least 10% of it is kept
+  const deathMul = (deaths) => Math.max(0.1, 1 - 0.1 * deaths);
+  // share of the sum the same AI stand-in keeps after death penalties (it dies 7-15 times a race):
+  // L4 44%, L10 29%, L16 22%, L25 10%, L40 10%; its level win rate drops to ~0.28
+  const deathKeep = (n) => Math.max(0.1, 0.48 - 0.015 * n);
+  const earnPerAttempt = (n) => (n <= 1 ? 850 : Math.min(5300, 2500 + 90 * n) * cashMul(n) * deathKeep(n));
+  const WIN_RATE = 0.28;
   const levelIncome = (n) => (n <= 1 ? 850 : earnPerAttempt(n) / WIN_RATE);
   function income(a, b) { let s = 0; for (let n = a; n <= b; n++) s += levelIncome(n); return s; }
 
@@ -59,10 +64,10 @@
   const CAREER = {
     ranks: 20,
     gate: (i) => i * 10,
-    need: (i) => 195 * Math.pow(1.035, i - 1),
+    need: (i) => 205 * Math.pow(1.035, i - 1),
     step: 1.1,
     tune: (i) => (i <= 3 ? 1 : 1 + (0.05 * (i - 3)) / 17),
-    stockPace: (i) => (195 * Math.pow(1.035, i)) / 1.1,
+    stockPace: (i) => (205 * Math.pow(1.035, i)) / 1.1,
     skill: (i) => 1.1 / (1.035 * (i <= 3 ? 1 : 1 + (0.05 * (i - 3)) / 17)),
     share: 0.8,
     block: (i) => [Math.max(1, (i - 1) * 10), i * 10 - 1],
@@ -85,5 +90,5 @@
   const maxUp = () => { const u = {}; UP_IDS.forEach((k) => (u[k] = 3)); return u; };
   const maxCost = (value) => UP_IDS.reduce((s, k) => s + upgradeCost(value, k, 3), 0);
 
-  window.Balance = { UP_IDS, applyUp, pace, rating, tier, partTier, upgradeCost, partCost, cashMul, earnPerAttempt, WIN_RATE, levelIncome, income, CAREER, cheapestUp, maxUp, maxCost };
+  window.Balance = { UP_IDS, applyUp, pace, rating, tier, partTier, upgradeCost, partCost, cashMul, deathMul, deathKeep, earnPerAttempt, WIN_RATE, levelIncome, income, CAREER, cheapestUp, maxUp, maxCost };
 })();

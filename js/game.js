@@ -248,15 +248,26 @@
       }
     },
 
+    // the final sum after death penalties, rounded to $10
+    keep(car, sum) { return Math.round((sum * Balance.deathMul(car.deaths)) / 10) * 10; },
+
+    onDeath(car) {
+      if (!car.isPlayer || this.state !== 'race') return;
+      const cut = Math.round((1 - Balance.deathMul(car.deaths)) * 100);
+      Particles.text(car.x, car.y - 26, car.deaths <= 9 ? '-10% ГРОШЕЙ' : 'МІНІМУМ 10%', '#ff5c7a');
+      this.penaltyFlash = 1.2;
+      return cut;
+    },
+
     showResults() {
       this.state = 'results';
       this.drag = null;
       const p = this.player, L = this.level;
       this.results = this.cars
-        .map((c) => ({ c, total: c.state === 'busted' ? 0 : c.money + c.bonus }))
+        .map((c) => ({ c, total: c.state === 'busted' ? 0 : this.keep(c, c.money + c.bonus) }))
         .sort((a, b) => b.total - a.total);
       this.win = p.state !== 'busted' && p.place > 0 && (this.boss ? p.place === 1 : this.results[0].c === p);
-      this.earned = p.state === 'busted' ? 0 : p.money + p.bonus + (this.win ? L.winBonus : 0);
+      this.earned = p.state === 'busted' ? 0 : this.keep(p, p.money + p.bonus + (this.win ? L.winBonus : 0));
       this.unlocked = !this.boss && this.win && Profile.data.level <= L.n;
       this.slip = this.boss && this.win ? Profile.careerWin(this.boss) : false;
       if (this.win && !this.boss) Profile.levelDone(L.n);
@@ -293,6 +304,7 @@
       UI.update(dt);
       if (window.Music) Music.update(dt);
       this.shakeAmt = Math.max(0, this.shakeAmt - dt * 20);
+      if (this.penaltyFlash > 0) this.penaltyFlash -= dt;
       this.pressJ = Math.max(0, (this.pressJ || 0) - dt); this.pressN = Math.max(0, (this.pressN || 0) - dt);
       if (this.banner && (this.banner.t -= dt) <= 0) this.banner = null;
       if (this.state === 'countdown' || this.state === 'race') this.updateRace(dt);
@@ -505,7 +517,7 @@
       if (window.Music && Music.started() && !(this.state === 'garage' && (Garage.screen === 'jukebox' || Garage.screen === 'career'))) {
         const acc = Profile.data && Profile.data.gang != null ? Art.TEAM[Profile.data.gang].main : '#ff3ea5';
         const inRace = this.state === 'race' || this.state === 'countdown' || this.state === 'results';
-        const pos = inRace ? [4, 184, 196] : this.state === 'garage' ? [176, 31, 164] : this.state === 'select' ? [4, 2, 168] : [4, 232, 196];
+        const pos = this.state === 'results' ? [4, 232, 196] : inRace ? [4, 184, 196] : this.state === 'garage' ? [176, 31, 164] : this.state === 'select' ? [4, 2, 168] : [4, 232, 196];
         ctx.save(); ctx.translate(ox, oy);
         Music.drawPopup(ctx, pos[0], pos[1], acc, pos[2]);
         ctx.restore();
@@ -735,7 +747,11 @@
         ctx.fillStyle = pal.main; ctx.fillRect(4, y, 6, 7);
         if (c.isPlayer) { ctx.fillStyle = '#ffffff'; ctx.fillRect(3, y + 3, 1, 1); }
         if (c.state === 'busted') Font.draw(ctx, 'ЗАТРИМАНО', 14, y, '#8a7aa8');
-        else Font.draw(ctx, '$' + (c.money + c.bonus) + (c.place ? ' #' + c.place : ''), 14, y, c.isPlayer ? '#ffffff' : pal.hi);
+        else {
+          const txt = '$' + (c.money + c.bonus) + (c.place ? ' #' + c.place : '');
+          Font.draw(ctx, txt, 14, y, c.isPlayer ? '#ffffff' : pal.hi);
+          if (c.deaths) Font.draw(ctx, '-' + Math.round((1 - Balance.deathMul(c.deaths)) * 100) + '%', 18 + Font.measure(txt, 1), y, c.isPlayer && this.penaltyFlash > 0 && Math.floor(t * 8) % 2 ? '#ffffff' : '#ff5c7a');
+        }
       });
       // progress track
       const X0 = 150, X1 = 330, fin = this.world.finishX;
@@ -856,7 +872,7 @@
         Font.draw(ctx, 'ПОТРІБНО ПРИБЛИЗНО ' + Math.round((r.need - 90) * 5), 300, 132, '#ffc31f', 1, 'center');
         Font.draw(ctx, 'ПРОКАЧАЙ ТАЧКУ В ТЮНІНГУ', 300, 146, '#b9a8e0', 1, 'center');
       }
-      Font.draw(ctx, 'ЗАРОБЛЕНО: ' + UI.money(this.earned), 240, 180, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
+      Font.draw(ctx, 'ЗАРОБЛЕНО: ' + UI.money(this.earned) + (this.player.deaths ? '  (СМЕРТІ: ' + this.player.deaths + ', -' + Math.round((1 - Balance.deathMul(this.player.deaths)) * 100) + '%)' : ''), 240, 180, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
       const main = Art.TEAM[this.gi].main;
       if (win) this.button(120, 194, 110, 22, 'КАР\'ЄРА', main, () => UI.transition('shutter', () => this.toGarage({ earned: this.earned, screen: 'career' }), 'ЧОРНИЙ СПИСОК'));
       else this.button(120, 194, 110, 22, 'ЩЕ РАЗ', main, () => UI.transition('shutter', () => this.startCareer(r), r.nick + ' VS ТИ'));
@@ -878,19 +894,21 @@
         Font.draw(ctx, top.state === 'busted' ? 'ПЕРЕМОЖЦІВ НЕМАЄ' : 'ПЕРЕМОЖЕЦЬ: ' + top.g.name, 240, 46, '#d8ccff', 1, 'center');
       }
       Font.draw(ctx, 'ГРОШІ', 262, 62, '#8a7aa8', 1, 'right');
-      Font.draw(ctx, 'ФІНІШ', 330, 62, '#8a7aa8', 1, 'right');
-      Font.draw(ctx, 'РАЗОМ', 410, 62, '#8a7aa8', 1, 'right');
+      Font.draw(ctx, 'ФІНІШ', 312, 62, '#8a7aa8', 1, 'right');
+      Font.draw(ctx, 'СМЕРТІ', 366, 62, '#8a7aa8', 1, 'right');
+      Font.draw(ctx, 'РАЗОМ', 430, 62, '#8a7aa8', 1, 'right');
       this.results.forEach((r, i) => {
         const y = 76 + i * 34, c = r.c, pal = Art.TEAM[c.gi];
         ctx.fillStyle = c.isPlayer ? '#2a1450' : '#1a0c34'; ctx.fillRect(40, y, 400, 30);
         ctx.fillStyle = pal.main; ctx.fillRect(40, y, 2, 30);
         Font.draw(ctx, i + 1 + '.', 50, y + 11, '#ffffff', 1);
         drawMapPreview(c.map, 84, y + 14, 1, this.time + i);
-        Font.draw(ctx, c.g.name + (c.isPlayer ? ' (ТИ)' : ''), 110, y + 11, pal.hi, 1);
+        Music.clipText(ctx, c.g.name + (c.isPlayer ? ' (ТИ)' : ''), 110, y + 11, 104, pal.hi, 1, false, this.time);
         if (c.state === 'busted') { Font.draw(ctx, 'ЗАТРИМАНО', 410, y + 11, '#ff2a3a', 1, 'right'); return; }
         Font.draw(ctx, '$' + c.money, 262, y + 11, '#9bf08a', 1, 'right');
-        Font.draw(ctx, c.place ? '+' + c.bonus : '-', 330, y + 11, '#ffc31f', 1, 'right');
-        Font.draw(ctx, '$' + r.total, 410, y + 11, '#ffffff', 1, 'right');
+        Font.draw(ctx, c.place ? '+' + c.bonus : '-', 312, y + 11, '#ffc31f', 1, 'right');
+        Font.draw(ctx, c.deaths ? c.deaths + ' -' + Math.round((1 - Balance.deathMul(c.deaths)) * 100) + '%' : '0', 366, y + 11, c.deaths ? '#ff5c7a' : '#6a5a88', 1, 'right');
+        Font.draw(ctx, '$' + r.total, 430, y + 11, '#ffffff', 1, 'right');
       });
       Font.draw(ctx, 'ЗАРОБЛЕНО: ' + UI.money(this.earned) + (this.win && L.winBonus ? ' (+' + L.winBonus + ' ЗА ПЕРЕМОГУ)' : ''), 240, 178, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
       const main = Art.TEAM[this.gi].main;

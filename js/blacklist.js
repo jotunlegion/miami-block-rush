@@ -541,6 +541,13 @@
     r.car.price = value;
     cash -= B.cheapestUp(r.car.stats, value, next.need).cost;
   });
+  // values must climb with rank: an early block with leftover shop cash can price a car above the next ones,
+  // so trim any car to 5% under the car above it
+  for (let k = RIVALS.length - 2; k >= 0; k--) {
+    const cap = Math.round((RIVALS[k + 1].car.price / 1.05) / 1000) * 1000;
+    if (RIVALS[k].car.price > cap) RIVALS[k].car.price = cap;
+  }
+
   // challenge rule and boss upgrade package (cheapest set of levels that lifts the stock car by the tune factor)
   RIVALS.forEach((r, k) => {
     r.carReq = k ? RIVALS[k - 1].car.price : 0;

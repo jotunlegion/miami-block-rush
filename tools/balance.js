@@ -121,7 +121,8 @@ L.push('| Rating | (pace - 90) x 5 |');
 L.push('| Upgrade price | base x (0.5 + car value / 10 000), bought level by level directly |');
 L.push('| Part price | base x (0.6 + car value / 25 000) |');
 L.push('| Level cash | bags and finish bonuses x (1 + 0.02 (level - 1)) |');
-L.push('| Income per level | earned per attempt / win rate ' + B.WIN_RATE + '; earned = min(5300, 2500 + 90 L) x cash |');
+L.push('| Death penalty | final sum x max(0.1, 1 - 0.1 x deaths) |');
+L.push('| Income per level | earned per attempt / win rate ' + B.WIN_RATE + '; earned = min(5300, 2500 + 90 L) x cash x kept after deaths max(0.1, 0.48 - 0.015 L) |');
 L.push('| Boss race | 1 vs 1, first to the finish wins and takes the car |');
 L.push('| Beatable | player pace >= need = boss pace x boss skill |');
 L.push('| Challenge rule | the rival only takes a bet from a car worth at least the previous rival car |');
@@ -328,7 +329,8 @@ HT.push(`<section><h2>Перевірка дуелями</h2>
 <div class="scroll"><table><thead><tr><th class="rank l">Ранг</th><th class="l">Тачка гравця</th><th>Темп прокачаної</th><th>Перемоги прокачаною</th><th>Темп стокової</th><th>Перемоги стоковою</th><th>Дуелей</th></tr></thead><tbody>
 ${DUELS.map((d) => {
   const r = Blacklist.byRank(d.rank);
-  const prev = d.rank < 20 ? Blacklist.byRank(d.rank + 1).car : Catalog.byId.contessa85;
+  // rank #20 is fought on the shop car the walk-through picked; later ranks on the previous pink slip
+  const prev = d.rank < 20 ? Blacklist.byRank(d.rank + 1).car : rows[0].plan.car;
   const plan = B.cheapestUp(prev.stats, prev.price, r.need);
   return `<tr><td class="rank"><b>#${d.rank}</b></td><td class="l">${esc(prev.name)}</td><td class="need">${f1(B.pace(B.applyUp(prev.stats, plan.up)))}</td><td>${pct(d.tuned)}</td><td>${f1(B.pace(prev.stats))}</td><td class="muted">${pct(d.stock)}</td><td>${d.n}</td></tr>`;
 }).join('')}
@@ -340,13 +342,14 @@ HT.push(`<div class="cols2"><section><h2>Формули</h2><dl class="formulas"
 <div><dt>Апгрейд</dt><dd>база × (0.5 + вартість тачки / 10 000)</dd></div>
 <div><dt>Деталі й фарба</dt><dd>база × (0.6 + вартість тачки / 25 000)</dd></div>
 <div><dt>Гроші рівня</dt><dd>мішки й бонуси × (1 + 0.02·(рівень − 1))</dd></div>
-<div><dt>Потрібен темп</dt><dd>195 × 1.035^(n − 1); стоковий приз = потрібне наступному / 1.10</dd></div>
+<div><dt>Смерті</dt><dd>фінальна сума × max(0.1, 1 − 0.1·смерті)</dd></div>
+<div><dt>Потрібен темп</dt><dd>205 × 1.035^(n − 1); стоковий приз = потрібне наступному / 1.10</dd></div>
 <div><dt>Вартість тачки-призу</dt><dd>тюнінг до наступного рангу = ${Math.round(C.share * 100)}% готівки на воротах</dd></div>
 <div><dt>Калібрування шасі</dt><dd>top у фізиці × 0.94…1.03, заміряно на тест-трасі</dd></div>
 </dl><p class="note">Темп виміряно на фіксованій тест-трасі з трамплінами, прірвами, сходами й падіннями на справжній фізиці: час кола ≈ 6750 / top, розгін 200 → 700 дає −7%, трамплін 1.3 → 1.6 дає −11%.</p></section>
 <section><h2>Економіка по блоках</h2><div class="scroll"><table><thead><tr><th class="l">Рівні</th><th>За спробу</th><th>Множник</th><th>Дохід блоку</th><th>Разом</th></tr></thead><tbody>
 ${blocks.map((b) => `<tr><td class="l">${b.a}–${b.b}</td><td>${ukMoney(b.earn)}</td><td>×${b.mul.toFixed(2)}</td><td>${ukMoney(b.inc)}</td><td>${ukMoney(b.cum)}</td></tr>`).join('')}
-</tbody></table></div><p class="note">Дохід = заробіток за спробу / ${B.WIN_RATE} (частка виграних заїздів). Заробіток за спробу виміряно ботом на рівнях 2–60, далі він росте лише множником рівня.</p></section></div>`);
+</tbody></table></div><p class="note">Дохід = заробіток за спробу / ${B.WIN_RATE} (частка виграних заїздів). Заробіток за спробу виміряно ботом на рівнях 2–60 і помножено на частку, що лишається після штрафів за смерті: max(0.1, 0.48 − 0.015·рівень). Бот гине 7–15 разів за гонку, тож для живого гравця ця модель песимістична.</p></section></div>`);
 
 HT.push(`<details><summary>Тачки автосалону для порівняння</summary><div class="scroll"><table><thead><tr><th class="l">Тачка</th><th>Ціна</th><th>Темп стоку</th><th>Макс. темп</th><th>Множник апгрейдів</th><th>Повний тюнінг</th></tr></thead><tbody>
 ${shop.map((c) => `<tr><td class="l">${esc(c.name)}</td><td>${ukMoney(c.price)}</td><td>${f1(B.pace(c.stats))}</td><td>${f1(B.pace(B.applyUp(c.stats, B.maxUp())))}</td><td>×${B.tier(c.price).toFixed(2)}</td><td>${ukMoney(B.maxCost(c.price))}</td></tr>`).join('')}
