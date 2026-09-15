@@ -11,12 +11,15 @@
   let data = null;
 
   const blankUp = () => { const u = {}; Catalog.UPGRADES.forEach((x) => (u[x.id] = 0)); return u; };
-  const blank = () => ({ v: 2, gang: DEFAULT_GANG, cash: START_CASH, current: null, cars: {}, stats: { races: 0, wins: 0, earned: 0, best: 0 } });
+  const blank = () => ({ v: 2, gang: DEFAULT_GANG, cash: START_CASH, current: null, level: 1, cars: {}, stats: { races: 0, wins: 0, earned: 0, best: 0 } });
 
   function load() {
     try {
       const s = localStorage.getItem(KEY);
-      data = s ? Object.assign(blank(), JSON.parse(s)) : blank();
+      const saved = s ? JSON.parse(s) : null;
+      data = saved ? Object.assign(blank(), saved) : blank();
+      // saves from before levels existed: players who already raced skip the tutorial
+      if (saved && saved.level == null) data.level = data.stats.races > 0 ? 2 : 1;
     } catch (e) { data = blank(); }
     for (const id of Object.keys(data.cars)) {
       if (!Catalog.byId[id]) { delete data.cars[id]; continue; }
@@ -131,10 +134,12 @@
     save();
   }
 
+  function levelDone(n) { if (n >= data.level) data.level = n + 1; save(); }
+
   function reset() { data = blank(); save(); }
 
   window.Profile = {
-    load, save, setGang, buy, spend, stats, rating, bars, upgradeCost, partCost, def, playerDef, rivalDefs, raceDone, reset, GANG_LOOK,
+    load, save, setGang, levelDone, buy, spend, stats, rating, bars, upgradeCost, partCost, def, playerDef, rivalDefs, raceDone, reset, GANG_LOOK,
     get data() { return data; },
     get cash() { return data.cash; },
     entry: (id) => data.cars[id],

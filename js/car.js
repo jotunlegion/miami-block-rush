@@ -129,7 +129,7 @@
         this.timer -= dt;
         if (this.timer <= 0 || this.grounded) this.state = 'drive';
       }
-      if (this.state === 'drive' && Math.hypot(this.vx, this.vy) < 14 && this.g.top > 30) {
+      if (this.state === 'drive' && !this.hold && Math.hypot(this.vx, this.vy) < 14 && this.g.top > 30) {
         this.stuck = (this.stuck || 0) + dt;
         if (this.stuck > 1.5) { this.stuck = 0; this.falls++; Particles.spark(this.x, this.y, 12, ['#ffffff', '#9d8cff']); this.respawn(game); return; }
       } else this.stuck = 0;
@@ -166,9 +166,9 @@
       const hovering = this.state === 'hover';
       const wasAir = !this.wheels.some((w) => w.contact);
       let fx = 0, fy = hovering ? 0 : GRAV * m * (wasAir ? (this.vy < 0 ? AIR_UP : AIR_DOWN) * (g.air || 1) : 1), tq = 0;
-      const throttle = this.state === 'drive' || hovering;
+      const throttle = (this.state === 'drive' || hovering) && !this.hold;
       const top = this.boost > 0 ? Math.min(g.top * 3, 480) : g.top, accel = g.accel * (this.boost > 0 ? 2.5 : 1);
-      const braking = this.state === 'finished' || this.state === 'ready';
+      const braking = this.state === 'finished' || this.state === 'ready' || this.hold;
       let anyContact = false, wt = 0, nc = 0;
 
       for (const wh of this.wheels) {

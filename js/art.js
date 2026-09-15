@@ -343,5 +343,22 @@
     for (; x < vw; x += img.width) ctx.drawImage(img, x, Math.round(y));
   }
 
-  window.Art = { TEAM, teamPal, CARS, carCanvas, wheel, tile, bag, bagBig, nitro, drawBackground, fromRows };
+  // ---------- police helicopter (faces right; rotors are drawn per frame) ----------
+  const heli = fromRows([
+    '                    KK                  ',
+    '               KKKKKhhKKKK              ',
+    '             KKbbbbbbbbbbbKK            ',
+    'L           KbhhhhhhhhhhbbbbKK          ',
+    'KK        KKbbbbbbbbbbbbbbbWWWKK        ',
+    'KbK     KKbbbbbbbbbbbbbbbbbWWWWwK       ',
+    'KbbKKKKKbbSSSSSSSSSSSSSSSSSbWWWwwK      ',
+    'KbbbbbbbbbSSSSSSSSSSSSSSSSSbbbbbbbK     ',
+    'KKKKKKKKKBBBBBBBBBBBBBBBBBBBBBBBBBK     ',
+    '        KKBBBBBBBBBBBBBBBBBBBBBBBK      ',
+    '          KKKKKKKKKKKKKKKKKKKKKKK       ',
+    '            K          K                ',
+    '         KggggggggggggggggggK           ',
+  ], { K: '#0b0718', B: '#1a2350', b: '#2c3d8a', h: '#5f82e0', S: '#e8ecff', W: '#bff4ff', w: '#3aa7d0', g: '#8a90aa', L: '#ff2a3a' });
+
+  window.Art = { TEAM, teamPal, CARS, carCanvas, wheel, tile, bag, bagBig, nitro, heli, drawBackground, fromRows };
 })();

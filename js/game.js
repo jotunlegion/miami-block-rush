@@ -53,6 +53,17 @@
     ctx.drawImage(img, Math.round(cx - map.ox * s), Math.round(cy - map.oy * s - hop), map.w * s, map.h * s);
   }
   const starterMap = (i) => Custom.build(Catalog.STARTERS[i]);
+  const HAND = Art.fromRows([
+    '.KK......',
+    'KWWK.....',
+    'KWWK.....',
+    'KWWKKK...',
+    'KWWWWWKK.',
+    'KWWWWWWWK',
+    'KWWWWWWWK',
+    '.KWWWWWK.',
+    '..KKKKK..',
+  ], { K: '#12082a', W: '#ffffff' });
 
   const Game = {
     state: 'title', time: 0, selected: 0, buttons: [], shakeAmt: 0, camX: 0,
@@ -72,23 +83,22 @@
       Garage.enter('hub', opts);
     },
 
-    startRace() {
+    startRace(n) {
       Particles.clear();
+      const L = (this.level = Levels.config(n || Profile.data.level || 1));
       const gi = Profile.data.gang;
       this.gi = gi;
-      this.world = World.create((Math.random() * 1e9) | 0);
-      const order = [0, 1, 2].filter((i) => i !== gi);
+      this.world = World.create((Math.random() * 1e9) | 0, L);
+      const order = [0, 1, 2].filter((i) => i !== gi).slice(0, L.rivals);
       const rivals = Profile.rivalDefs(order);
-      this.cars = [
-        new Car(this.world, rivals[0], 160, 128, false, order[0]),
-        new Car(this.world, rivals[1], 215, 128, false, order[1]),
-        new Car(this.world, Profile.playerDef(), 270, 128, true, gi),
-      ];
-      this.player = this.cars[2];
-      this.ais = [new AIBuilder(this.cars[0], this, { delay: 0.55, mistake: 0.05 }), new AIBuilder(this.cars[1], this, { delay: 0.65, mistake: 0.07 })];
-      this.police = [new Police(this.world, 95, this, 0), new Police(this.world, 40, this, 1)];
-      const r = Math.random;
-      this.tray = [0, 1, 2].map(() => ({ piece: World.randomPiece(r), cd: 0 }));
+      this.cars = rivals.map((d, i) => new Car(this.world, d, 215 - i * 55, 128, false, order[i]));
+      this.player = new Car(this.world, Profile.playerDef(), 270, 128, true, gi);
+      this.cars.push(this.player);
+      this.ais = rivals.map((d, i) => new AIBuilder(this.cars[i], this, { delay: L.ai.delay + i * 0.1, mistake: L.ai.mistake + i * 0.02 }));
+      this.police = [95, 40].slice(0, L.police).map((x, i) => new Police(this.world, x, this, i));
+      this.heli = L.heli ? new Helicopter(this) : null;
+      this.tut = L.tutorial ? { bridged: false } : null;
+      this.tray = [0, 1, 2].map(() => ({ piece: L.tutorial ? { p: 0, v: 0 } : this.nextPiece(), cd: 0 }));
       this.drag = null; this.grab = null; this.platT = 3; this.banner = null;
       this.count = 3.99; this.lastBeep = 4;
       this.raceTime = 0; this.finished = 0; this.endTimer = Infinity; this.acc = 0;
@@ -97,9 +107,15 @@
       Audio8.startMusic('race');
     },
 
+    nextPiece() {
+      if (this.level && this.level.tutorial) return { p: Math.random() < 0.7 ? 0 : 1, v: 0 };
+      return World.randomPiece(Math.random);
+    },
+
     rects() {
       const out = World.bagRects(this.world);
       for (const c of this.cars.concat(this.police.map((q) => q.car))) if (c.state !== 'wreck' && c.state !== 'fell' && c.state !== 'busted') out.push(c.bbox());
+      if (this.heli) out.push(this.heli.rect());
       return out;
     },
 
@@ -137,7 +153,7 @@
 
     onFinish(car) {
       car.place = ++this.finished;
-      car.bonus = [1000, 500, 200][car.place - 1] || 0;
+      car.bonus = this.level.bonus[car.place - 1] || 0;
       car.state = 'finished';
       Particles.text(car.x, car.y - 16, '+' + car.bonus, '#ffc31f');
       if (car.isPlayer) {
@@ -168,14 +184,31 @@
       }
     },
 
+    // a cop touch costs $50 while there is money on hand; a broke racer gets arrested
+    onCaught(car, cop) {
+      if (car.state === 'busted' || car.fineCd > 0) return;
+      if (car.money <= 0) { this.onBusted(car); return; }
+      const fine = Math.min(50, car.money);
+      car.money -= fine; car.fineCd = 0.8; cop.stun = 1;
+      Particles.text(car.x, car.y - 18, '-$' + fine, '#ff5c7a');
+      Particles.spark(car.x - 10, car.y, 10, ['#ff2a3a', '#2f6bff', '#ffffff'], 80);
+      if (car.isPlayer) {
+        Audio8.sfx.fine(); this.shake(2);
+        this.banner = { text: car.money > 0 ? 'ШТРАФ -$' + fine : 'ГРОШІ СКІНЧИЛИСЬ!', color: '#ff5c7a', t: 1 };
+      }
+    },
+
     showResults() {
       this.state = 'results';
       this.drag = null;
+      const p = this.player, L = this.level;
       this.results = this.cars
         .map((c) => ({ c, total: c.state === 'busted' ? 0 : c.money + c.bonus }))
         .sort((a, b) => b.total - a.total);
-      this.win = this.results[0].c === this.player && this.player.state !== 'busted';
-      this.earned = this.player.state === 'busted' ? 0 : this.player.money + this.player.bonus + (this.win ? 500 : 0);
+      this.win = p.state !== 'busted' && p.place > 0 && this.results[0].c === p;
+      this.earned = p.state === 'busted' ? 0 : p.money + p.bonus + (this.win ? L.winBonus : 0);
+      this.unlocked = this.win && Profile.data.level <= L.n;
+      if (this.win) Profile.levelDone(L.n);
       Profile.raceDone(this.earned, this.win);
       Audio8.setEngine(0, false); Audio8.setSiren(0);
       if (this.win) Audio8.sfx.finish();
@@ -187,8 +220,14 @@
       const d = this.drag, slot = this.tray[d.slot];
       const shape = PIECES[slot.piece.p].v[slot.piece.v];
       const sw = shape[0].length * CELL, sh = shape.length * CELL;
-      const col = Math.round((d.sx + this.camX - sw / 2) / CELL);
-      const row = Math.round((d.sy - 34 - sh / 2) / CELL);
+      let col = Math.round((d.sx + this.camX - sw / 2) / CELL);
+      let row = Math.round((d.sy - 34 - sh / 2) / CELL);
+      // tutorial: a straight block dropped near the chasm snaps into it
+      const gap = this.tut && !this.tut.bridged ? this.world.gap : null;
+      if (gap && shape.length === 1 && Math.abs(row - gap.row) <= 1 && col + shape[0].length > gap.col - 2 && col < gap.col + gap.len + 2) {
+        row = gap.row;
+        col = Math.max(gap.col, Math.min(gap.col + gap.len - shape[0].length, col));
+      }
       const sxL = col * CELL - this.camX;
       const onScreen = sxL + sw > -ox && sxL < vw - ox && d.sy < TRAY_Y;
       const ok = onScreen && World.canPlace(this.world, shape, col, row, this.rects(), true);
@@ -233,10 +272,13 @@
       }
       this.ais.forEach((a) => a.update(dt));
       this.police.forEach((q) => q.update(dt, this));
+      if (this.heli) this.heli.update(dt, this);
+      for (const c of this.cars) if (c.fineCd > 0) c.fineCd -= dt;
+      if (this.tut) this.updateTutorial();
       Particles.update(dt, w);
       for (let i = 0; i < w.flash.length; i++) if (w.flash[i] > 0) w.flash[i] = Math.max(0, w.flash[i] - dt * 3);
       for (const s of this.tray) {
-        if (s.cd > 0) { s.cd -= dt; if (s.cd <= 0) { s.cd = 0; s.piece = World.randomPiece(Math.random); } }
+        if (s.cd > 0) { s.cd -= dt; if (s.cd <= 0) { s.cd = 0; s.piece = this.nextPiece(); } }
       }
 
       this.updatePlatforms(dt);
@@ -251,12 +293,25 @@
       Audio8.setEngine(Math.abs(p.vx), p.active || p.state === 'finished');
       let d = Infinity;
       for (const q of this.police) d = Math.min(d, Math.abs(p.x - q.x));
-      Audio8.setSiren(this.state === 'race' && p.state !== 'busted' ? 1 - d / 380 : 0);
+      Audio8.setSiren(this.state === 'race' && p.state !== 'busted' && this.police.length ? 1 - d / 380 : 0);
+    },
+
+    // level 1: the car waits at the chasm until a block bridges it on roof level
+    updateTutorial() {
+      const T = this.tut, w = this.world, g = w.gap, p = this.player;
+      if (!T.bridged) {
+        let ok = true;
+        for (let c = g.col; c < g.col + g.len; c++) if (World.cellAt(w, c, g.row) !== 1) ok = false;
+        if (ok) { T.bridged = true; this.banner = { text: 'ЧУДОВО!', color: '#b6ff6a', t: 1.4 }; Audio8.sfx.pickup(3); }
+      }
+      const hold = !T.bridged && p.x > g.col * CELL - 70 && p.x < g.col * CELL;
+      if (p.hold && !hold) p.stopped = false;
+      p.hold = hold;
     },
 
     updatePlatforms(dt) {
       const w = this.world, ps = w.platforms;
-      if (this.state === 'race') {
+      if (this.state === 'race' && this.level.platforms) {
         this.platT -= dt;
         if (this.platT <= 0 && ps.filter((p) => !p.anchored).length < 3) {
           this.platT = 2.5 + Math.random() * 2.5;
@@ -528,6 +583,7 @@
 
       this.police.forEach((q) => q.draw(ctx, cx, t));
       this.cars.forEach((c) => c.draw(ctx, cx, t));
+      if (this.heli) this.heli.draw(ctx, cx, t);
       Particles.draw(ctx, cx);
 
       const p = this.player;
@@ -623,8 +679,8 @@
       const t = this.time, p = this.player;
       ctx.save(); ctx.translate(ox, oy);
       // money board
-      [0, 1, 2].forEach((gi, row) => {
-        const c = this.cars.find((q) => q.gi === gi), pal = Art.TEAM[gi], y = 4 + row * 10;
+      this.cars.slice().sort((a, b) => a.gi - b.gi).forEach((c, row) => {
+        const gi = c.gi, pal = Art.TEAM[gi], y = 4 + row * 10;
         ctx.fillStyle = pal.main; ctx.fillRect(4, y, 6, 7);
         if (c.isPlayer) { ctx.fillStyle = '#ffffff'; ctx.fillRect(3, y + 3, 1, 1); }
         if (c.state === 'busted') Font.draw(ctx, 'ЗАТРИМАНО', 14, y, '#8a7aa8');
@@ -637,6 +693,7 @@
       for (let k = 0; k < 3; k++) { ctx.fillStyle = k % 2 ? '#12082a' : '#ffffff'; ctx.fillRect(X1 + 1, 4 + k * 3, 3, 3); }
       const px = (x) => Math.round(X0 + Math.max(0, Math.min(1, x / fin)) * (X1 - X0));
       this.police.forEach((q) => { ctx.fillStyle = Math.floor(t * 7) % 2 ? '#ff2a3a' : '#2f6bff'; ctx.fillRect(px(q.x) - 1, 5, 3, 6); });
+      if (this.heli) { ctx.fillStyle = '#9cc4ff'; ctx.fillRect(px(this.heli.x) - 2, 2, 5, 2); }
       this.cars.forEach((c) => {
         if (c.state === 'busted') return;
         ctx.fillStyle = c.isPlayer ? '#ffffff' : Art.TEAM[c.gi].main;
@@ -646,7 +703,8 @@
       // position
       const key = (c) => (c.state === 'busted' ? -1e9 : c.place ? 1e6 - c.place : c.x);
       const pos = 1 + this.cars.filter((c) => c !== p && key(c) > key(p)).length;
-      Font.draw(ctx, 'ПОЗ ' + pos + '/3', 420, 4, '#ffffff', 1, 'right');
+      Font.draw(ctx, 'ПОЗ ' + pos + '/' + this.cars.length, 420, 4, '#ffffff', 1, 'right');
+      Font.draw(ctx, 'РІВЕНЬ ' + this.level.n, 420, 14, '#b9a8e0', 1, 'right');
       if (p.boost > 0)
         for (let k = 0; k < 14; k++) {
           ctx.fillStyle = k % 3 ? '#ffffff55' : '#29d9ff88';
@@ -657,34 +715,72 @@
       if (window.Music && Music.started()) this.button(428, 16, 48, 12, 'ТРЕК >', '#29e0d0', () => Music.next());
 
       if (this.state === 'countdown') {
-        const n = Math.ceil(this.count);
-        Font.draw(ctx, String(n), 240, 60, '#ffc31f', 6, 'center', '#8c1a5c');
-        Font.draw(ctx, 'ВИКЛАДАЙ ДОРОГУ ЗАЗДАЛЕГІДЬ!', 240, 110, '#ffffff', 1, 'center');
-        Font.draw(ctx, 'ТАП ПО БЛОКУ - ПОВОРОТ', 240, 122, '#d8ccff', 1, 'center');
-        Font.draw(ctx, 'ЗЕЛЕНІ ПЛАТФОРМИ ТЯГНИ ВГОРУ/ВНИЗ', 240, 134, '#b6ff6a', 1, 'center');
-        Font.draw(ctx, '3 БАЛОНИ = НІТРО X3', 240, 146, '#9fdcff', 1, 'center');
-        Font.draw(ctx, 'СТАВ БЛОК ПОВЕРХ ПАСТКИ - ВІН ЇЇ ЗАМІНИТЬ', 240, 158, '#ffc31f', 1, 'center');
+        const n = Math.ceil(this.count), L = this.level;
+        Font.draw(ctx, String(n), 240, 44, '#ffc31f', 6, 'center', '#8c1a5c');
+        Font.draw(ctx, 'РІВЕНЬ ' + L.n + ' - ' + L.name, 240, 98, '#ffffff', 2, 'center', '#12082a');
+        L.tips.forEach((s, i) => Font.draw(ctx, s, 240, 122 + i * 12, i === 0 ? '#ffc31f' : '#d8ccff', 1, 'center'));
       }
       if (p.state === 'hover') Font.draw(ctx, 'БУДУЙ ПІД СОБОЮ! ' + Math.ceil(p.timer), 240, 30, '#29e0d0', 1, 'center');
       if (this.state === 'race' && p.active) {
         const near = this.police.some((q) => p.x - q.x < 150);
         if (near && Math.floor(t * 4) % 2) Font.draw(ctx, '< ПОЛІЦІЯ!', 8, 40, '#ff2a3a', 1, 'left');
       }
-      if (p.state === 'finished' && this.endTimer !== Infinity && this.state === 'race') {
+      if (p.state === 'finished' && this.endTimer !== Infinity && this.state === 'race' && this.cars.length > 1) {
         Font.draw(ctx, 'ЧЕКАЄМО СУПЕРНИКІВ ' + Math.ceil(this.endTimer), 240, 30, '#fff1c9', 1, 'center');
         this.button(210, 42, 60, 14, 'ДАЛІ >', '#ffc31f', () => this.showResults());
       }
+      if (this.tut && this.state === 'race') this.drawTutorial();
       if (this.banner) Font.draw(ctx, this.banner.text, 240, 70, this.banner.color, 3, 'center', '#12082a');
       ctx.restore();
+    },
+
+    drawTutorial() {
+      const T = this.tut, g = this.world.gap, t = this.time, p = this.player, w = this.world;
+      const plate = (text, y, color) => {
+        const tw = Font.measure(text, 1), x = Math.round(240 - tw / 2 - 6);
+        ctx.fillStyle = '#12082ae0'; ctx.fillRect(x, y - 3, Math.round(tw + 12), 13);
+        ctx.fillStyle = color; ctx.fillRect(x, y + 9, Math.round(tw + 12), 1);
+        Font.draw(ctx, text, 240, y, color, 1, 'center');
+      };
+      if (T.bridged) {
+        if (p.state !== 'finished') plate('ЗБИРАЙ ГРОШІ І ЇДЬ ДО ФІНІШУ', 44, '#b6ff6a');
+        return;
+      }
+      // pulsing frame over the chasm
+      const W = g.len * CELL, tx = Math.round(g.col * CELL - this.camX), ty = g.row * CELL;
+      ctx.fillStyle = Math.floor(t * 4) % 2 ? '#ffc31f' : '#fff3a0';
+      for (let x = 0; x < W; x += 4) { ctx.fillRect(tx + x, ty, 2, 1); ctx.fillRect(tx + x + 2, ty + CELL - 1, 2, 1); }
+      for (let y = 0; y < CELL; y += 4) { ctx.fillRect(tx, ty + y, 1, 2); ctx.fillRect(tx + W - 1, ty + y + 2, 1, 2); }
+      // demo: a see-through block flies from the tray into the chasm with a pointing hand
+      if (!this.drag) {
+        const k = (t % 2.4) / 1.6;
+        if (k <= 1) {
+          const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+          const r = this.slotRect(1), sx = r.x + r.w / 2 - W / 2, sy = r.y + r.h / 2 - CELL / 2;
+          const x = Math.round(sx + (tx - sx) * e), y = Math.round(sy + (ty - sy) * e - Math.sin(e * Math.PI) * 36);
+          ctx.globalAlpha = 0.6;
+          for (let i = 0; i < g.len; i++) ctx.drawImage(Art.tile(1, this.gi), x + i * CELL, y);
+          ctx.globalAlpha = 1;
+          ctx.drawImage(HAND, x + W / 2 - 2, y + 8);
+        }
+      }
+      plate('ПЕРЕТЯГНИ БЛОК З ПАНЕЛІ У ПРІРВУ', 44, '#ffc31f');
+      let wrong = false;
+      for (let c = g.col; c < g.col + g.len; c++) for (let r = 1; r < ROWS; r++) if (r !== g.row && w.type[r * w.cols + c]) wrong = true;
+      if (wrong) plate('СТАВ БЛОК НА РІВНІ ДАХУ', 58, '#ff7cc6');
+      else if (p.hold) plate('МАШИНА ЧЕКАЄ, ПОКИ ТИ ЗБУДУЄШ МІСТ', 58, '#d8ccff');
     },
 
     drawResults() {
       ctx.fillStyle = '#12082ad0'; ctx.fillRect(0, 0, vw, vh);
       ctx.save(); ctx.translate(ox, oy);
-      const busted = this.player.state === 'busted';
-      const title = busted ? 'ТЕБЕ ЗАТРИМАЛИ' : this.win ? 'ТИ ПЕРЕМІГ!' : 'ПОРАЗКА';
+      const L = this.level, busted = this.player.state === 'busted';
+      const title = busted ? 'ТЕБЕ ЗАТРИМАЛИ' : this.win ? 'РІВЕНЬ ' + L.n + ' ПРОЙДЕНО!' : 'ПОРАЗКА';
       Font.draw(ctx, title, 240, 18, this.win ? '#ffc31f' : '#ff3ea5', 3, 'center', '#12082a');
-      if (!this.win) {
+      if (this.win) {
+        const nx = Levels.config(L.n + 1);
+        Font.draw(ctx, (this.unlocked ? 'ВІДКРИТО ' : 'ДАЛІ ') + 'РІВЕНЬ ' + nx.n + ': ' + nx.name, 240, 46, '#b6ff6a', 1, 'center');
+      } else if (this.cars.length > 1) {
         const top = this.results[0].c;
         Font.draw(ctx, top.state === 'busted' ? 'ПЕРЕМОЖЦІВ НЕМАЄ' : 'ПЕРЕМОЖЕЦЬ: ' + top.g.name, 240, 46, '#d8ccff', 1, 'center');
       }
@@ -703,8 +799,10 @@
         Font.draw(ctx, c.place ? '+' + c.bonus : '-', 330, y + 11, '#ffc31f', 1, 'right');
         Font.draw(ctx, '$' + r.total, 410, y + 11, '#ffffff', 1, 'right');
       });
-      Font.draw(ctx, 'ЗАРОБЛЕНО: ' + UI.money(this.earned) + (this.win ? ' (+500 ЗА ПЕРЕМОГУ)' : ''), 240, 178, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
-      this.button(130, 192, 100, 22, 'ЩЕ РАЗ', Art.TEAM[this.gi].main, () => UI.transition('shutter', () => this.startRace(), 'ГОНКА!'));
+      Font.draw(ctx, 'ЗАРОБЛЕНО: ' + UI.money(this.earned) + (this.win && L.winBonus ? ' (+' + L.winBonus + ' ЗА ПЕРЕМОГУ)' : ''), 240, 178, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
+      const main = Art.TEAM[this.gi].main;
+      if (this.win) this.button(110, 192, 124, 22, 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, () => UI.transition('shutter', () => this.startRace(L.n + 1), 'РІВЕНЬ ' + (L.n + 1)));
+      else this.button(130, 192, 100, 22, 'ЩЕ РАЗ', main, () => UI.transition('shutter', () => this.startRace(L.n), 'РІВЕНЬ ' + L.n));
       this.button(250, 192, 100, 22, 'В ГАРАЖ', '#9d8cff', () => UI.transition('shutter', () => this.toGarage({ earned: this.earned }), 'ГАРАЖ'));
       ctx.restore();
     },

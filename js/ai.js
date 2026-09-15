@@ -86,20 +86,105 @@
         top *= Math.min(1, 0.65 + game.raceTime / 30); // pressure ramps up
         if (gap < -10) top = 8; // never run ahead of the pack, just wait
         if (c.x > c.w.finishX - 90) top = 0;
+        top *= game.level ? game.level.policeSpeed : 1;
         c.g.top = Math.max(top, 1);
       }
+      // a cop that just fined someone brakes for a moment so the racer can get away
+      if (this.stun > 0) { this.stun -= dt; c.g.top = 1; }
       this.ai.update(dt);
       if (game.state !== 'race' || c.state !== 'drive') return;
       for (const r of racers) {
         if (r.state !== 'drive') continue;
         const dx = r.x - c.x;
-        if (dx > -4 && dx < 30 && Math.abs(r.y - c.y) < 14) game.onBusted(r);
+        if (dx > -4 && dx < 30 && Math.abs(r.y - c.y) < 14) game.onCaught(r, this);
       }
     }
 
     draw(ctx, camX, time) { this.car.draw(ctx, camX, time); }
   }
 
+  // police helicopter (level 20+): randomly speeds up and slows down, dips toward the road and knocks cars around
+  class Helicopter {
+    constructor(game) {
+      this.x = game.player.x - 260; this.y = 30; this.vx = 0;
+      this.mood = 0; this.speedMul = 1; this.ty = 40; this.t = 0; this.chop = 0;
+      this.hitCd = new Map();
+    }
+
+    rect() { return { x: this.x - 21, y: this.y - 9, w: 42, h: 20 }; }
+
+    blocked(w, x, y) {
+      for (let sx = -20; sx <= 20; sx += 5) for (let sy = -8; sy <= 10; sy += 6) if (World.isSolid(w, x + sx, y + sy)) return true;
+      return false;
+    }
+
+    update(dt, game) {
+      if (game.state !== 'race') return;
+      this.t += dt;
+      const w = game.world, p = game.player;
+      const racers = game.cars.filter((r) => r.active);
+      const ref = p.active ? p : racers[0] || p;
+      if ((this.mood -= dt) <= 0) {
+        this.mood = 1.2 + Math.random() * 2.2;
+        this.speedMul = 0.5 + Math.random() * 1.1;
+        this.ty = Math.random() < 0.45 ? 96 + Math.random() * 40 : 24 + Math.random() * 44;
+      }
+      let mul = this.speedMul;
+      const dx = this.x - ref.x;
+      if (dx < -240) mul = 1.9;
+      else if (dx > 260) mul = 0.35;
+      this.vx += (Math.max(70, Math.abs(ref.vx)) * mul - this.vx) * Math.min(1, dt * 1.6);
+      if (this.x > w.finishX + 80) this.vx = Math.min(this.vx, 0);
+      this.x += this.vx * dt;
+      // never fly into the road: climb while the body would overlap blocks
+      let ty = this.ty;
+      while (ty > 20 && this.blocked(w, this.x + Math.sign(this.vx) * 16, ty)) ty -= 8;
+      this.y += (ty + Math.sin(this.t * 2.3) * 3 - this.y) * Math.min(1, dt * 1.4);
+
+      for (const [c, cd] of this.hitCd) this.hitCd.set(c, cd - dt);
+      for (const c of game.cars) {
+        if (!(c.state === 'drive' || c.state === 'hover') || (this.hitCd.get(c) || 0) > 0) continue;
+        if (Math.abs(c.x - this.x) < 18 + c.bw / 2 && Math.abs(c.y - this.y) < 8 + c.bh / 2) {
+          this.hitCd.set(c, 0.9);
+          const below = c.y > this.y;
+          c.vy = below ? Math.max(c.vy, 110) : Math.min(c.vy, -90);
+          c.vx = c.vx * 0.5 + (c.x < this.x ? -30 : 20);
+          c.va += (Math.random() - 0.5) * 5;
+          if (c.state === 'drive') c.damage(0, below ? -c.bh / 2 : c.bh / 2, 2, 80);
+          Particles.spark(c.x, below ? c.y - 6 : c.y + 6, 14, ['#ffffff', '#9cc4ff', '#ffc31f'], 90);
+          if (c.isPlayer) { Audio8.sfx.thud(1); game.shake(3); Particles.text(c.x, c.y - 20, 'ВЕРТОЛІТ!', '#9cc4ff'); }
+        }
+      }
+      // rotor wash when it flies low
+      if (this.y > 88 && Math.random() < dt * 18) Particles.smoke(this.x + (Math.random() - 0.5) * 34, this.y + 14 + Math.random() * 10, '#6a5a8a');
+      if ((this.chop -= dt) <= 0) { this.chop = 0.085; Audio8.sfx.chop(Math.max(0, 1 - Math.abs(this.x - p.x) / 320)); }
+    }
+
+    draw(ctx, camX, time) {
+      const X = Math.round(this.x - camX), Y = Math.round(this.y);
+      if (X < -120 || X > 720) return;
+      // searchlight sweeping the road, drawn in whole pixel rows
+      const sweep = Math.sin(time * 1.3) * 0.25;
+      ctx.fillStyle = '#fff3a0';
+      ctx.globalAlpha = 0.11;
+      for (let dy = 0; dy < 76; dy++) {
+        const wd = 3 + dy * 0.62, cx = X + 9 + dy * (0.35 + sweep);
+        ctx.fillRect(Math.round(cx - wd / 2), Y + 3 + dy, Math.round(wd), 1);
+      }
+      ctx.globalAlpha = 1;
+      ctx.drawImage(Art.heli, X - 20, Y - 7);
+      const f = Math.floor(time * 24) % 2;
+      ctx.fillStyle = '#c9cfe6';
+      if (f) { ctx.fillRect(X - 23, Y - 8, 46, 1); ctx.fillRect(X - 19, Y - 6, 1, 5); }
+      else { ctx.fillRect(X - 8, Y - 8, 17, 1); ctx.fillRect(X - 22, Y - 4, 7, 1); }
+      ctx.fillStyle = '#0b0718'; ctx.fillRect(X - 1, Y - 8, 3, 1);
+      const b = Math.floor(time * 6) % 2;
+      ctx.fillStyle = b ? '#ff2a3a' : '#2f6bff'; ctx.fillRect(X - 3, Y - 6, 2, 1);
+      ctx.fillStyle = b ? '#2f6bff' : '#ff2a3a'; ctx.fillRect(X + 2, Y - 6, 2, 1);
+    }
+  }
+
+  window.Helicopter = Helicopter;
   window.AIBuilder = AIBuilder;
   window.Police = Police;
 })();

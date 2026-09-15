@@ -42,15 +42,17 @@
     return { p: 0, v: 0 };
   }
 
-  function create(seed) {
+  // cfg comes from Levels.config: field length, safety islands, trap density, tutorial layout
+  function create(seed, cfg) {
+    cfg = cfg || { cols: 360, islands: [0, 0], trapGap: 34, nitro: true };
     const r = rng(seed);
-    const cols = 360;
+    const cols = cfg.cols;
     const w = {
       cols, width: cols * CELL,
       type: new Uint8Array(cols * ROWS),
       owner: new Uint8Array(cols * ROWS),
       flash: new Float32Array(cols * ROWS),
-      bags: [],
+      bags: [], nitros: [], platforms: [], islands: [],
       startCol: 2,
       finishX: (cols - 24) * CELL,
       trail: new Float32Array(Math.ceil((cols * CELL) / 4)).fill(NaN),
@@ -61,36 +63,54 @@
       w.type[row * cols + c] = t;
       w.owner[row * cols + c] = o;
     };
+    const bag = (c, row, value) => w.bags.push({ x: c * CELL + 8, y: row * CELL + 8, value, big: value > 100, taken: false, t: r() * 6 });
     // start rooftop
     for (let c = 0; c < 22; c++) for (let row = 9; row < ROWS; row++) set(c, row, 1);
     // finish rooftop
     for (let c = cols - 30; c < cols; c++) for (let row = 9; row < ROWS; row++) set(c, row, 1);
-    // floating neon islands
+
+    if (cfg.tutorial) {
+      // one long rooftop split by a small chasm the player has to bridge
+      const g = (w.gap = cfg.gap);
+      for (let c = 22; c < cols - 30; c++) if (c < g.col || c >= g.col + g.len) for (let row = 9; row < ROWS; row++) set(c, row, 1);
+      [5, 7, 9, 11].forEach((d, i) => bag(g.col + g.len + d, 8, i === 2 ? 250 : 100));
+      return w;
+    }
+
+    // safety islands: long flat decks with ramps at both ends
+    const [count, len] = cfg.islands || [0, 0];
+    if (count) {
+      const a0 = 30, a1 = cols - 40, span = (a1 - a0) / count;
+      for (let i = 0; i < count; i++) {
+        const c0 = Math.round(a0 + i * span + r() * Math.max(0, span - len - 4));
+        const row = 8 + Math.floor(r() * 3);
+        set(c0, row, 4); set(c0 + 1, row, 5);
+        for (let c = c0 + 2; c < c0 + len - 2; c++) set(c, row, 1);
+        set(c0 + len - 2, row, 6); set(c0 + len - 1, row, 7);
+        w.islands.push({ c0, c1: c0 + len, row });
+      }
+    }
+    // small floating neon traps, denser on later levels
     let c = 40;
     while (c < cols - 50) {
-      const len = 2 + Math.floor(r() * 3), row = 6 + Math.floor(r() * 5);
-      for (let i = 0; i < len; i++) set(c + i, row, 1);
-      c += 34 + Math.floor(r() * 30);
+      const tl = 2 + Math.floor(r() * 3), row = 6 + Math.floor(r() * 5);
+      if (!w.islands.some((s) => c + tl > s.c0 - 8 && c < s.c1 + 8)) for (let i = 0; i < tl; i++) set(c + i, row, 1);
+      c += (cfg.trapGap || 34) + Math.floor(r() * 30);
     }
     // money bags
     c = 17;
     while (c < cols - 32) {
       const row = Math.max(2, Math.min(10, Math.round(3 + r() * 4 + r() * 4)));
-      if (!w.type[row * cols + c]) {
-        const big = row <= 4;
-        w.bags.push({ x: c * CELL + 8, y: row * CELL + 8, value: big ? 250 : 100, big, taken: false, t: r() * 6 });
-      }
+      if (!w.type[row * cols + c]) bag(c, row, row <= 4 ? 250 : 100);
       c += 4 + Math.floor(r() * 6);
     }
     // nitro canisters
-    w.nitros = [];
     c = 26;
-    while (c < cols - 36) {
+    while (cfg.nitro !== false && c < cols - 36) {
       const row = 3 + Math.floor(r() * 8), x = c * CELL + 8, y = row * CELL + 8;
       if (!w.type[row * cols + c] && !w.bags.some((b) => Math.abs(b.x - x) < 24 && Math.abs(b.y - y) < 24)) w.nitros.push({ x, y, taken: false, t: r() * 6 });
       c += 9 + Math.floor(r() * 9);
     }
-    w.platforms = [];
     return w;
   }
 

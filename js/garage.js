@@ -2,7 +2,7 @@
 (function () {
   const U = Catalog.UPGRADES, P = Catalog.PARTS, HW = Voxel3D.HW;
   const MENU = [
-    { id: 'race', name: 'ГОНКА', icon: 'flag', hint: 'ВИЇЗД НА ВУЛИЦІ МАЯМІ' },
+    { id: 'race', name: 'ГОНКА', icon: 'flag', get hint() { const L = Levels.config(Profile.data ? Profile.data.level : 1); return 'РІВЕНЬ ' + L.n + ': ' + L.name; } },
     { id: 'lot', name: 'АВТОСАЛОН', icon: 'key', hint: '20 ЛЕГЕНД 80-Х - 2000-Х' },
     { id: 'perf', name: 'ТЮНІНГ', icon: 'engine', hint: 'ДВИГУН, ТУРБО, ШИНИ, ПІДВІСКА' },
     { id: 'visual', name: 'ВІЗУАЛ', icon: 'spray', hint: 'ОБВІС, ФАРБА, ВІНІЛИ, НЕОН' },

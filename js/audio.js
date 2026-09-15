@@ -192,6 +192,8 @@
     beep(go) { if (!ac) return; tone(now(), go ? 880 : 440, go ? 0.4 : 0.15, 0.3, 'p25', sfxBus); },
     finish() { if (!ac) return; const t = now(); [60, 64, 67, 72, 76, 79, 84].forEach((m, i) => tone(t + i * 0.07, mtof(m), 0.2, 0.2, 'p25', sfxBus)); },
     bust() { if (!ac) return; const t = now(); [69, 66, 63, 57].forEach((m, i) => tone(t + i * 0.16, mtof(m), 0.2, 0.25, 'square', sfxBus)); },
+    fine() { if (!ac) return; const t = now(); tone(t, 988, 0.05, 0.2, 'square', sfxBus, 660); tone(t + 0.06, 523, 0.12, 0.22, 'square', sfxBus, 262); noise(t, 0.08, 0.2, 'highpass', 2500, sfxBus); },
+    chop(v) { if (!ac || v <= 0.02) return; noise(now(), 0.045, 0.2 * v, 'lowpass', 420, sfxBus); },
     jump() { if (!ac) return; tone(now(), 220, 0.18, 0.22, 'p25', sfxBus, 660); },
     nitro() { if (!ac) return; const t = now(); noise(t, 0.9, 0.5, 'bandpass', 600, sfxBus, 3500); tone(t, 110, 0.6, 0.2, 'sawtooth', sfxBus, 440); },
     pickup(n) { if (!ac) return; const t = now(); for (let i = 0; i < n; i++) tone(t + i * 0.05, 660 * Math.pow(1.26, i), 0.08, 0.18, 'p12', sfxBus); },
