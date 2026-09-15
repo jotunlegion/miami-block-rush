@@ -8,3 +8,8 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+# promo render scratch (frames, stems) - regenerable
+tools/promo/node_modules/
+tools/promo/work/
+tools/promo/frames/
+tools/promo/prev/

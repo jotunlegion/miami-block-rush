@@ -1,0 +1,6 @@
+{
+  "name": "miami-block-rush-promo",
+  "private": true,
+  "description": "16:9 TikTok-style video creative rendered from the real game engine",
+  "dependencies": { "puppeteer-core": "^24.0.0" }
+}

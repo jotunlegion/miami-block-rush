@@ -1,0 +1,32 @@
+<!DOCTYPE html><html><body style="margin:0;background:#000">
+<canvas id="c" width="480" height="270"></canvas>
+<script src="file:///E:/MiamiVice/js/font.js"></script>
+<script src="file:///E:/MiamiVice/js/audio.js"></script>
+<script src="file:///E:/MiamiVice/js/world.js"></script>
+<script src="file:///E:/MiamiVice/js/paint.js"></script>
+<script src="file:///E:/MiamiVice/js/tunnel.js"></script>
+<script src="file:///E:/MiamiVice/js/levels.js"></script>
+<script src="file:///E:/MiamiVice/js/art.js"></script>
+<script src="file:///E:/MiamiVice/js/catalog.js"></script>
+<script src="file:///E:/MiamiVice/js/balance.js"></script>
+<script src="file:///E:/MiamiVice/js/custom.js"></script>
+<script src="file:///E:/MiamiVice/js/profile.js"></script>
+<script src="file:///E:/MiamiVice/js/ui.js"></script>
+<script src="file:///E:/MiamiVice/js/car.js"></script>
+<script src="file:///E:/MiamiVice/js/ai.js"></script>
+<script src="file:///E:/MiamiVice/js/voxel3d.js"></script>
+<script>
+const ctx=document.getElementById('c').getContext('2d');ctx.imageSmoothingEnabled=false;
+const w=World.create(5,{cols:120,islands:[0,0],trapGap:34,nitro:false});
+for(let c=0;c<60;c++)for(let r=9;r<13;r++){w.type[r*w.cols+c]=1;w.owner[r*w.cols+c]=9;}
+const def=Profile.def('st_vice',undefined,{glow:'pink'});
+const car=new Car(w,def,120,128,true,0);car.state='drive';car.vx=100;
+const g={cars:[car],police:[],onFinish(){},shake(){}};
+for(let i=0;i<120;i++)car.update(1/120,g);
+Art.drawBackground(ctx,480,270,0,0,0);
+for(let r=0;r<13;r++)for(let c=0;c<32;c++){const t=w.type[r*w.cols+c];if(t)ctx.drawImage(Art.tile(t,w.owner[r*w.cols+c]),c*16,r*16);}
+car.draw(ctx,0,0);
+Voxel3D.render(ctx,Custom.build(Catalog.SHOP[0]),{cx:380,cy:60,zoom:3,yaw:0.6,pitch:0.3});
+Font.draw(ctx,'ТЕСТ ОК',240,20,'#ffc31f',2,'center');
+window.done=true;
+</script></body></html>
