@@ -8,7 +8,8 @@
   const STATIC = { hi: '#c9bdff', main: '#9d8cff', dark: '#3d2f7a', body: '#271a4f', body2: '#221645' };
   const POLICE = { hi: '#9cc4ff', main: '#2f6bff', dark: '#16307a', body: '#131a44', body2: '#10163a' };
   const PLATFORM = { hi: '#d8ff9a', main: '#6aff5a', dark: '#1f7a3a', body: '#173a22', body2: '#12301c' };
-  const teamPal = (o) => (o < 3 ? TEAM[o] : o === 3 ? POLICE : o === 5 ? PLATFORM : STATIC);
+  const BARRIER = { hi: '#ffd08a', main: '#ff8a3d', dark: '#8a3d0f', body: '#4a2410', body2: '#3d1d0c' };
+  const teamPal = (o) => (o < 3 ? TEAM[o] : o === 3 ? POLICE : o === 5 ? PLATFORM : o === 6 ? BARRIER : STATIC);
 
   // ---------- voxel car maps ----------
   const PAL_COMMON = { K: '#1a0f2a', C: '#6fe8ff', c: '#1e6a9e', Y: '#fff6b0', R: '#ff2a3a', H: '#e6ecf5', G: '#5a4a78' };

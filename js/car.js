@@ -385,17 +385,22 @@
 
     // respawn spot with free air around the car and no wall right in front of it
     findSpawn(x0) {
+      const t = this.w.tunnels && this.tunnel != null ? this.w.tunnels[this.tunnel] : null;
+      const rows = t ? [t.bottom, t.bottom - 1] : [5, 4, 6, 3, 7, 2, 8];
+      // a tunnel is only three rows tall and the way back is the free one: never skip a wall
+      const steps = t ? [0, -24, -48, -80, -120, -170, -230] : [0, 16, 32, 48, 72, 96, 128, 160];
+      const ahead = t ? 56 : 150;
       const clear = (x, y) => {
-        for (let sx = x - 20; sx <= x + 150; sx += 4)
-          for (let sy = y - 12; sy <= y + 10; sy += 4) if (isSolid(this.w, sx, sy)) return false;
+        for (let sx = x - 20; sx <= x + ahead; sx += 4)
+          for (let sy = y - 10; sy <= y + 8; sy += 4) if (isSolid(this.w, sx, sy)) return false;
         return true;
       };
-      for (const dx of [0, 16, 32, 48, 72, 96, 128, 160])
-        for (const row of [5, 4, 6, 3, 7, 2, 8]) {
-          const x = x0 + dx, y = row * 16 + 4;
+      for (const dx of steps)
+        for (const row of rows) {
+          const x = Math.max(8, x0 + dx), y = row * 16 + 4;
           if (clear(x, y)) return [x, y];
         }
-      return [x0, 20];
+      return [Math.max(8, x0 - 40), t ? t.bottom * 16 + 4 : 20];
     }
 
     fall(game) {

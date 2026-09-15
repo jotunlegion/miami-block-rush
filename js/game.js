@@ -101,9 +101,23 @@
       this.heli = L.heli ? new Helicopter(this) : null;
       this.tut = L.tutorial ? { bridged: false } : null;
       this.boss = null;
-      this.tray = L.draw ? [] : [0, 1, 2].map(() => ({ piece: L.tutorial ? { p: 0, v: 0 } : this.nextPiece(), cd: 0 }));
+      if (L.tunnel) this.toTunnels();
+      // dealt one at a time: on a tunnel level the next piece depends on what is already in the tray
+      this.tray = [];
+      if (!L.draw) for (let i = 0; i < 3; i++) this.tray.push({ piece: L.tutorial ? { p: 0, v: 0 } : this.nextPiece(), cd: 0 });
       Paint.reset(this);
       this.resetRace();
+    },
+
+    // the player takes the middle deck, the rivals the one above and the one below
+    toTunnels() {
+      const lanes = [0, 2];
+      let k = 0;
+      for (const c of this.cars) {
+        c.tunnel = c.isPlayer ? 1 : lanes[Math.min(lanes.length - 1, k++)];
+        const t = this.world.tunnels[c.tunnel];
+        c.x = 70; c.y = t.floor * CELL - 12; c.vx = 0; c.vy = 0; c.a = 0; c.va = 0;
+      }
     },
 
     resetRace() {
@@ -130,26 +144,34 @@
       this.ais = [new AIBuilder(this.cars[0], this, L.ai)];
       this.police = []; this.heli = null; this.tut = null;
       this.boss = r;
-      this.tray = [0, 1, 2].map(() => ({ piece: this.nextPiece(), cd: 0 }));
+      this.tray = [];
+      for (let i = 0; i < 3; i++) this.tray.push({ piece: this.nextPiece(), cd: 0 });
       Paint.reset(this);
       this.resetRace();
     },
 
     nextPiece() {
       if (this.level && this.level.tutorial) return { p: Math.random() < 0.7 ? 0 : 1, v: 0 };
+      if (this.world && this.world.tunnels) return Tunnel.deal(this);
       return World.randomPiece(Math.random);
     },
 
     // withPickups: AI builders keep clear of money and nitro; the player's pieces may cover them
-    rects(withPickups = true) {
+    rects(withPickups = true, skipGi = null) {
       const out = withPickups ? World.bagRects(this.world) : [];
-      for (const c of this.cars.concat(this.police.map((q) => q.car))) if (c.state !== 'wreck' && c.state !== 'fell' && c.state !== 'busted') out.push(c.bbox());
+      const tun = !!this.world.tunnels;
+      for (const c of this.cars.concat(this.police.map((q) => q.car))) {
+        if (c.state === 'wreck' || c.state === 'fell' || c.state === 'busted') continue;
+        // in a tunnel the wall to patch is right at your own bumper, so your car is no obstacle
+        if (tun && skipGi != null && c.gi === skipGi) continue;
+        out.push(c.bbox());
+      }
       if (this.heli) out.push(this.heli.rect());
       return out;
     },
 
     tryPlace(shape, col, row, owner, replace = false) {
-      if (!World.canPlace(this.world, shape, col, row, this.rects(!replace), replace)) return false;
+      if (!World.canPlace(this.world, shape, col, row, this.rects(!replace, replace ? owner : null), replace)) return false;
       if (this.world.draw) return this.paintShape(shape, col, row, owner);
       if (replace) { this.shatterUnder(shape, col, row, owner); this.clearPickups(shape, col, row); }
       World.place(this.world, shape, col, row, owner);
@@ -157,6 +179,7 @@
       shape.forEach((line, dy) => line.forEach((t, dx) => {
         if (t) Particles.spark((col + dx) * CELL + 8, (row + dy) * CELL + 8, 2, [pal.hi, '#ffffff'], 40);
       }));
+      if (this.world.tunnels) Tunnel.onPlace(this, shape, col, row);
       return true;
     },
 
@@ -326,8 +349,10 @@
       const d = this.drag, slot = this.tray[d.slot];
       const shape = PIECES[slot.piece.p].v[slot.piece.v];
       const sw = shape[0].length * CELL, sh = shape.length * CELL;
-      let col = Math.round((d.sx + this.camX - sw / 2) / CELL);
-      let row = Math.round((d.sy - 34 - sh / 2) / CELL);
+      // d.wx/d.wy are world coordinates that only the finger moves, so the piece stays on the
+      // cell it was aimed at instead of being dragged forward by the scrolling road
+      let col = Math.round((d.wx - sw / 2) / CELL);
+      let row = Math.round((d.wy - 34 - sh / 2) / CELL);
       // tutorial: a straight block dropped near the chasm snaps into it
       const gap = this.tut && !this.tut.bridged ? this.world.gap : null;
       if (gap && shape.length === 1 && Math.abs(row - gap.row) <= 1 && col + shape[0].length > gap.col - 2 && col < gap.col + gap.len + 2) {
@@ -336,7 +361,7 @@
       }
       const sxL = col * CELL - this.camX;
       const onScreen = sxL + sw > -ox && sxL < vw - ox && d.sy < TRAY_Y;
-      const ok = onScreen && World.canPlace(this.world, shape, col, row, this.rects(false), true);
+      const ok = onScreen && World.canPlace(this.world, shape, col, row, this.rects(false, this.gi), true);
       const swap = new Set();
       shape.forEach((line, dy) => line.forEach((t, dx) => { if (t && World.cellAt(this.world, col + dx, row + dy)) swap.add(dy * 16 + dx); }));
       return { shape, col, row, ok, swap };
@@ -386,8 +411,10 @@
       Particles.update(dt, w);
       for (let i = 0; i < w.flash.length; i++) if (w.flash[i] > 0) w.flash[i] = Math.max(0, w.flash[i] - dt * 10);
       for (const s of this.tray) {
+        if (s.flash > 0) s.flash -= dt;
         if (s.cd > 0) { s.cd -= dt; if (s.cd <= 0) { s.cd = 0; s.piece = this.nextPiece(); } }
       }
+      if (w.tunnels) Tunnel.restock(this, dt);
 
       this.updatePlatforms(dt);
       const target = p.x - (p.boost > 0 ? 80 : 130 - Math.max(0, Math.min(1, (p.vx - 120) / 120)) * 50);
@@ -480,11 +507,18 @@
         for (let i = 0; i < 3; i++) {
           const r = this.slotRect(i);
           if (!this.drag && this.tray[i].cd <= 0 && q.x >= r.x && q.x < r.x + r.w && q.y >= r.y && q.y < r.y + r.h) {
-            this.drag = { id: e.pointerId, slot: i, sx: q.x, sy: q.y, x0: q.x, y0: q.y, moved: false };
+            this.drag = { id: e.pointerId, slot: i, sx: q.x, sy: q.y, wx: q.x + this.camX, wy: q.y, x0: q.x, y0: q.y, moved: false };
             return;
           }
         }
       }
+    },
+
+    // move the held piece by the finger delta only: the camera must not drag it along
+    dragTo(q) {
+      const d = this.drag;
+      d.wx += q.x - d.sx; d.wy += q.y - d.sy;
+      d.sx = q.x; d.sy = q.y;
     },
 
     pointerMove(e) {
@@ -493,7 +527,7 @@
       if (this.grab && e.pointerId === this.grab.id) this.grab.ty = q.y - this.grab.off;
       if (this.ink && e.pointerId === this.ink.id) { Paint.move(this, q); return; }
       if (!this.drag || e.pointerId !== this.drag.id) return;
-      this.drag.sx = q.x; this.drag.sy = q.y;
+      this.dragTo(q);
       if (Math.hypot(q.x - this.drag.x0, q.y - this.drag.y0) > 6) this.drag.moved = true;
     },
 
@@ -504,7 +538,7 @@
       if (this.drag && e.pointerId !== this.drag.id) return;
       if (this.drag) {
         const d = this.drag, slot = this.tray[d.slot];
-        d.sx = q.x; d.sy = q.y;
+        this.dragTo(q);
         if (!d.moved) {
           slot.piece.v = (slot.piece.v + 1) % PIECES[slot.piece.p].v.length;
           Audio8.sfx.rotate();
@@ -670,6 +704,7 @@
           if (w.flash[i] > 0) { ctx.globalAlpha = w.flash[i]; ctx.drawImage(tintTile(ty, '#ffffff'), X, Y); ctx.globalAlpha = 1; }
         }
       if (w.ink) Paint.drawInk(ctx, w, cx, t, cx - ox, cx - ox + vw);
+      if (w.tunnels) Tunnel.drawHints(ctx, this, cx, t);
       for (const pl of w.platforms) {
         const X = Math.round(pl.x - cx), Y = Math.round(pl.y);
         if (X > vw || X + pl.w < -ox - 16) continue;
@@ -747,8 +782,10 @@
       this.tray.forEach((s, i) => {
         const r = this.slotRect(i);
         const dragging = this.drag && this.drag.slot === i && this.drag.moved;
+        // on a tunnel level the slot that fits the next wall is lit up
+        const wanted = s.cd <= 0 && this.world.tunnels && Tunnel.wants(this, s.piece.p);
         ctx.fillStyle = '#1f0c3e'; ctx.fillRect(r.x, r.y, r.w, r.h);
-        ctx.fillStyle = dragging ? pal.main : '#3d2f7a';
+        ctx.fillStyle = s.flash > 0 && Math.floor(this.time * 16) % 2 ? '#ffffff' : dragging ? pal.main : wanted ? pal.hi : '#3d2f7a';
         ctx.fillRect(r.x, r.y, r.w, 1); ctx.fillRect(r.x, r.y + r.h - 1, r.w, 1); ctx.fillRect(r.x, r.y, 1, r.h); ctx.fillRect(r.x + r.w - 1, r.y, 1, r.h);
         if (s.cd > 0) {
           ctx.fillStyle = pal.dark;

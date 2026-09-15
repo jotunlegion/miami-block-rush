@@ -30,6 +30,7 @@
       if (this.t > 0) return;
       this.t = this.skill.delay * (0.7 + Math.random() * 0.6);
       if (c.x > w.finishX - 60) return;
+      if (w.tunnels) { Tunnel.ai(g, c, this.skill); return; }
 
       let sr = c.grounded ? Math.round((c.y + 8) / CELL) : Math.floor((c.y + 8) / CELL) + 1;
       sr = Math.max(3, Math.min(11, sr));

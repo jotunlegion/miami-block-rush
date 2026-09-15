@@ -198,6 +198,7 @@
     nitro() { if (!ac) return; const t = now(); noise(t, 0.9, 0.5, 'bandpass', 600, sfxBus, 3500); tone(t, 110, 0.6, 0.2, 'sawtooth', sfxBus, 440); },
     pickup(n) { if (!ac) return; const t = now(); for (let i = 0; i < n; i++) tone(t + i * 0.05, 660 * Math.pow(1.26, i), 0.08, 0.18, 'p12', sfxBus); },
     grab() { if (!ac) return; tone(now(), 520, 0.05, 0.15, 'square', sfxBus, 780); },
+    clear(n) { if (!ac) return; const t = now(); for (let i = 0; i < Math.min(4, n); i++) tone(t + i * 0.045, 659 * Math.pow(1.335, i), 0.11, 0.22, 'p25', sfxBus); noise(t, 0.28, 0.25, 'highpass', 4000, sfxBus, 9000); },
     spray(f) { if (!ac) return; noise(now(), 0.05, 0.1, 'bandpass', 900 + f * 2400, sfxBus, 700 + f * 1400); },
     dry() { if (!ac) return; const t = now(); tone(t, 300, 0.24, 0.25, 'square', sfxBus, 70); noise(t, 0.22, 0.14, 'lowpass', 500, sfxBus); },
     whoosh(style) { if (!ac) return; const t = now(); noise(t, style === 'shutter' ? 0.5 : 0.28, 0.35, 'bandpass', style === 'shutter' ? 300 : 900, sfxBus, style === 'shutter' ? 120 : 4000); },

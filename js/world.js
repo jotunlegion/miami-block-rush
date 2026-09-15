@@ -64,6 +64,9 @@
       w.owner[row * cols + c] = o;
     };
     const bag = (c, row, value) => w.bags.push({ x: c * CELL + 8, y: row * CELL + 8, value: Math.round((value * (cfg.cash || 1)) / 10) * 10, big: value > 100, taken: false, t: r() * 6 });
+    // a tunnel level has no rooftops: three stacked decks run the whole length
+    if (cfg.tunnel) return Tunnel.layout(w, cfg, r, set, bag);
+
     // start rooftop
     for (let c = 0; c < 22; c++) for (let row = 9; row < ROWS; row++) set(c, row, 1);
     // finish rooftop

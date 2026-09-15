@@ -8,7 +8,8 @@
     4: 'НЕОНОВА ТРАСА',
     5: 'КОПИ І ПЛАТФОРМИ',
     6: 'ДВІ БАНДИ',
-    8: 'ПОДВІЙНИЙ ПАТРУЛЬ',
+    8: 'ТУНЕЛІ',
+    10: 'ПОДВІЙНИЙ ПАТРУЛЬ',
     15: 'БЕЗ ОСТРОВІВ',
     20: 'ВЕРТОЛІТ',
   };
@@ -19,7 +20,8 @@
     4: ['БЛОКІВ НЕМАЄ - МАЛЮЙ ДОРОГУ ПАЛЬЦЕМ', 'ФАРБИ НА 5 КОРПУСІВ, БАЛОН = +20%', 'ЛІНІЯ ЛЯГАЄ ПОВЕРХ ЧОГО ЗАВГОДНО', 'АЛЕ ГРОШІ Й БАЛОНИ ПІД НЕЮ ЗГОРЯТЬ'],
     5: ['ЗА ТОБОЮ КОПИ! ДОТИК - ШТРАФ $50', 'ЗЕЛЕНІ ПЛАТФОРМИ ТЯГНИ ВГОРУ/ВНИЗ', 'НЕМАЄ ГРОШЕЙ - АРЕШТ'],
     6: ['ТЕПЕР ДВІ БАНДИ-СУПЕРНИЦІ', 'ПЕРЕМАГАЄ НАЙБАГАТШИЙ'],
-    8: ['ДРУГА ПАТРУЛЬНА МАШИНА', 'ДОТИК - ШТРАФ $50, БЕЗ ГРОШЕЙ - АРЕШТ'],
+    8: ['У КОЖНОГО СВІЙ ТУНЕЛЬ', 'У СТІНІ БРАКУЄ 1-2 ФІГУР - ВСТАВ ЇХ', 'ПОВНИЙ СТОВПЧИК ЗНИКАЄ, ПРОХІД ВІДКРИТО'],
+    10: ['ДРУГА ПАТРУЛЬНА МАШИНА', 'ДОТИК - ШТРАФ $50, БЕЗ ГРОШЕЙ - АРЕШТ'],
     15: ['ОСТРОВІВ БЕЗПЕКИ БІЛЬШЕ НЕМАЄ', 'ВСЯ ДОРОГА - ТВОЯ'],
     20: ['ПОЛІЦЕЙСЬКИЙ ВЕРТОЛІТ!', 'ВІН ПІРНАЄ І ЗБИВАЄ МАШИНИ', 'КРІЗЬ НЬОГО БЛОКИ НЕ СТАВЛЯТЬСЯ'],
   };
@@ -28,6 +30,28 @@
 
   // neon levels: the 4th, then every fifth one
   const isNeon = (n) => n >= 4 && (n - 4) % 5 === 0;
+  // tunnel levels: the 8th, then every fifteenth one - they never land on a neon level
+  const isTunnel = (n) => n >= 8 && (n - 8) % 15 === 0;
+  const TUNNEL_TIPS = ['ТРИ ТУНЕЛІ - У КОЖНОГО СВІЙ', 'У СТІНІ БРАКУЄ 1-2 ФІГУР', 'ЗАПОВНИВ СТОВПЧИК - ВІН ЗНИК'];
+
+  // Tunnel difficulty peaks on the twentieth tunnel level, and is driven by three things:
+  // how many walls a tunnel holds, how often one is missing two pieces, and how much run-up
+  // there is between walls. The run-up is set in SECONDS at the player's own top speed, so a
+  // tuned car gets a proportionally longer level instead of less time to think.
+  function tunnelCfg(n) {
+    const d = Math.min(20, Math.round((n - 8) / 15)), k = d / 20;
+    const top = (window.Profile && Profile.topSpeed ? Profile.topSpeed() : 0) || 140;
+    const sec = [4.6 - 1.9 * k, 6.4 - 2.6 * k];          // 4.6-6.4 s of warning, 2.7-3.8 s at the peak
+    const cell = (s) => Math.max(6, Math.round((s * top) / 16));
+    const gap = [cell(sec[0]), cell(sec[1])];
+    const walls = Math.round(6 + d * 0.9);
+    return {
+      d, top, sec, gap, walls,
+      two: 0.1 + 0.5 * k,      // chance a wall is missing two pieces instead of one
+      nitro: true,
+      cols: Math.min(1100, 70 + walls * Math.round((gap[0] + gap[1]) / 2)),
+    };
+  }
 
   // paint economy: a full tank is about 4.5 car bodies of line, one can is a fifth of it.
   // waste is how much longer than the bare gap a real player's line ends up, floor is the
@@ -61,28 +85,31 @@
     const k = Math.max(0, (15 - n) / 13);
     const count = k > 0 ? Math.max(1, Math.round(5 * k)) : 0;
     const len = Math.max(6, Math.round((field / 20) * (0.4 + 0.6 * k)));
-    const neon = isNeon(n);
-    // a neon level is always one on one: the paint is challenge enough
-    const rivals = neon ? 1 : n >= 6 ? 2 : n >= 3 ? 1 : 0;
+    const neon = isNeon(n), tun = isTunnel(n), T = tun ? tunnelCfg(n) : null;
+    // a neon level is always one on one: the paint is challenge enough.
+    // a tunnel level is always three cars, because there are three tunnels
+    const rivals = tun ? 2 : neon ? 1 : n >= 6 ? 2 : n >= 3 ? 1 : 0;
     const cash = Balance.cashMul(n), scale = (v) => Math.round((v * cash) / 10) * 10;
     return {
       cash,
-      n, cols, rivals,
+      n, cols: tun ? T.cols : cols, rivals,
       draw: neon,
       paint: neon ? paintCfg(n) : null,
+      tunnel: T,
       name: UNLOCKS[n] || DISTRICTS[(n - 7) % DISTRICTS.length],
       tutorial: false,
       islands: neon ? [Math.max(2, count), Math.max(10, len)] : [count, count ? len : 0],
-      police: neon ? (n >= 9 ? 1 : 0) : n >= 8 ? 2 : n >= 5 ? 1 : 0,
-      platforms: n >= 5,
-      heli: n >= 20,
+      // no cops, platforms or helicopter in the tunnels: the walls are the whole job there
+      police: tun ? 0 : neon ? (n >= 9 ? 1 : 0) : n >= 10 ? 2 : n >= 5 ? 1 : 0,
+      platforms: n >= 5 && !tun,
+      heli: n >= 20 && !tun,
       nitro: true,
       trapGap: Math.max(34, 80 - n * 3),
       bonus: (rivals ? [1000, 500, 200] : [600]).map(scale),
       winBonus: rivals ? scale(500) : 0,
       ai: { delay: Math.max(0.45, 0.72 - (n - 3) * 0.015), mistake: Math.max(0.03, 0.1 - (n - 3) * 0.004) },
       policeSpeed: Math.min(1.15, 0.8 + Math.max(0, n - 4) * 0.02),
-      tips: TIPS[n] || (neon ? NEON_TIPS : GENERIC),
+      tips: TIPS[n] || (neon ? NEON_TIPS : tun ? TUNNEL_TIPS : GENERIC),
     };
   }
 
@@ -90,7 +117,7 @@
   function boss(r) {
     const L = config(r.gate);
     return Object.assign({}, L, {
-      boss: r, rivals: 1, police: 0, heli: false, platforms: true, draw: false, paint: null,
+      boss: r, rivals: 1, police: 0, heli: false, platforms: true, draw: false, paint: null, tunnel: null,
       name: 'ЧОРНИЙ СПИСОК #' + r.rank,
       bonus: [Math.round((1500 * L.cash) / 10) * 10, 0], winBonus: 0,
       ai: { delay: +(0.55 - 0.012 * r.i).toFixed(3), mistake: +(0.06 - 0.0025 * r.i).toFixed(4), look: 1.7 },
@@ -98,5 +125,5 @@
     });
   }
 
-  window.Levels = { config, boss, isNeon };
+  window.Levels = { config, boss, isNeon, isTunnel };
 })();

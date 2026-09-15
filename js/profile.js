@@ -83,6 +83,15 @@
     return Object.assign({ key: id, name: car.name, map: Custom.build(car, cu) }, s);
   }
 
+  // top speed of the car in the garage, without building its voxel map: used to size levels
+  function topSpeed() {
+    try {
+      const e = data.cars[data.current], c = Catalog.byId[data.current];
+      const s = Balance.applyUp(c.stats, e.up);
+      return c.phys ? Math.round(s.top * c.phys) : s.top;
+    } catch (err) { return 140; }
+  }
+
   function playerDef() {
     const e = data.cars[data.current];
     return def(data.current, e.up, e.cu);
@@ -144,7 +153,7 @@
   function reset() { data = blank(); save(); }
 
   window.Profile = {
-    load, save, setGang, levelDone, beaten, careerState, carOk, careerWin, buy, spend, stats, rating, bars, upgradeCost, partCost, def, playerDef, rivalDefs, raceDone, reset, GANG_LOOK,
+    load, save, setGang, levelDone, beaten, careerState, carOk, careerWin, buy, spend, stats, rating, bars, upgradeCost, partCost, def, playerDef, topSpeed, rivalDefs, raceDone, reset, GANG_LOOK,
     get data() { return data; },
     get cash() { return data.cash; },
     entry: (id) => data.cars[id],

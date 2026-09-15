@@ -4,8 +4,11 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 
 **Play:** https://miami-block-rush.dimabondar2812.workers.dev
 **Neon mode test scene:** https://miami-block-rush.dimabondar2812.workers.dev/neon
+**Tunnel mode test scene:** https://miami-block-rush.dimabondar2812.workers.dev/tunnel
 
 - Neon levels (4, 9, 14, ...): no blocks - you paint the road with your finger from a limited can of paint
+- Tunnel levels (8, 23, 38, ...): three parallel tunnels, one per racer, blocked by walls missing one or
+  two pieces - drop them in and the filled column clears, Tetris style
 - Vanilla JavaScript + HTML5 Canvas, no build step, no dependencies
 - Designed for phones in landscape (16:9), pixel-perfect integer scaling
 - Ukrainian interface
@@ -16,6 +19,8 @@ Open `index.html` in a browser, or serve the folder with any static server.
 `neon.html` is a test scene for the neon painting mode: it drops straight into a painted level
 and shows the paint balance (how much paint the gaps to the next safety island need vs how much
 paint and how many cans are left), with buttons to switch neon level and to empty the tank.
+`tunnel.html` does the same for tunnel mode: it reports the walls left, the shortest run-up
+between two walls in seconds at the car's top speed, and what the next wall is missing.
 
 ## Deploy
 
@@ -28,6 +33,7 @@ paint and how many cans are left), with buttons to switch neon level and to empt
 - `js/car.js` - car physics, voxel destruction, particles
 - `js/world.js` - grid, pieces, level generation, painted ink
 - `js/paint.js` - neon painting mode: the paint tank, strokes, cans, gauge
+- `js/tunnel.js` - tunnel mode: deck layout, walls, the column clear, piece dealing, rival solving
 - `js/ai.js` - rival builders and police
 - `js/garage.js`, `js/voxel3d.js` - garage, dealership, tuning, 3D voxel renderer
 - `js/catalog.js`, `js/custom.js`, `js/profile.js` - cars, parts, customization, save data
