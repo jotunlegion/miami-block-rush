@@ -69,6 +69,7 @@
   const Game = {
     state: 'title', time: 0, selected: 0, buttons: [], shakeAmt: 0, camX: 0,
     world: null, cars: [], police: [], ais: [], tray: [], drag: null, banner: null, acc: 0,
+    armed: null,                      // tap control: the tray slot whose piece is in hand
     paint: 0, paintMax: 0, ink: null, dryT: 0,
 
     shake(n) { this.shakeAmt = Math.max(this.shakeAmt, n); },
@@ -123,6 +124,7 @@
 
     resetRace() {
       this.drag = null; this.grab = null; this.ink = null; this.platT = 3; this.banner = null;
+      this.armed = null;
       this.count = 3.99; this.lastBeep = 4;
       this.raceTime = 0; this.finished = 0; this.endTimer = Infinity; this.acc = 0;
       this.camX = this.player.x - 130;
@@ -327,7 +329,7 @@
 
     showResults() {
       this.state = 'results';
-      this.drag = null;
+      this.drag = null; this.armed = null;
       const p = this.player, L = this.level;
       this.results = this.cars
         .map((c) => ({ c, total: c.state === 'busted' ? 0 : this.keep(c, c.money + c.bonus) }))
@@ -346,14 +348,17 @@
 
     slotRect(i) { return { x: 240 + (i - 1) * 84 - 38, y: TRAY_Y + 3, w: 76, h: 44 }; },
 
-    ghost() {
-      const d = this.drag, slot = this.tray[d.slot];
-      const shape = PIECES[slot.piece.p].v[slot.piece.v];
+    // Where a piece lands for a fingertip at sx,sy. A dragged one hangs clear above the thumb,
+    // since the whole point of dragging is watching the ghost; a tapped one lands centred on the
+    // tap, because a tap means "here" and there is no ghost to read before the finger lifts.
+    aim(piece, sx, sy, lifted) {
+      const shape = PIECES[piece.p].v[piece.v];
       const sw = shape[0].length * CELL, sh = shape.length * CELL;
-      // the piece hangs off the fingertip in screen space: centred on it, lifted clear of it,
-      // and the cell is read off that every frame, so the scrolling road never carries it away
-      let col = Math.round((d.sx + this.camX - sw / 2) / CELL);
-      let row = Math.round((d.sy - DRAG_LIFT - sh) / CELL);
+      const cy = lifted ? sy - DRAG_LIFT - sh / 2 : sy;
+      // the cell is read off the fingertip in screen space every frame, so the scrolling road
+      // never carries the piece away from the finger holding it
+      let col = Math.round((sx + this.camX - sw / 2) / CELL);
+      let row = Math.round((cy - sh / 2) / CELL);
       // tutorial: a straight block dropped near the chasm snaps into it
       const gap = this.tut && !this.tut.bridged ? this.world.gap : null;
       if (gap && shape.length === 1 && Math.abs(row - gap.row) <= 1 && col + shape[0].length > gap.col - 2 && col < gap.col + gap.len + 2) {
@@ -361,12 +366,14 @@
         col = Math.max(gap.col, Math.min(gap.col + gap.len - shape[0].length, col));
       }
       const sxL = col * CELL - this.camX;
-      const onScreen = sxL + sw > -ox && sxL < vw - ox && d.sy < TRAY_Y;
+      const onScreen = sxL + sw > -ox && sxL < vw - ox && sy < TRAY_Y;
       const ok = onScreen && World.canPlace(this.world, shape, col, row, this.rects(false, this.gi), true);
       const swap = new Set();
       shape.forEach((line, dy) => line.forEach((t, dx) => { if (t && World.cellAt(this.world, col + dx, row + dy)) swap.add(dy * 16 + dx); }));
       return { shape, col, row, ok, swap };
     },
+
+    ghost() { const d = this.drag; return this.aim(this.tray[d.slot].piece, d.sx, d.sy, true); },
 
     // ---------------- update ----------------
     update(dt) {
@@ -505,13 +512,37 @@
           if (q.y < TRAY_Y && !onBtn) Paint.down(this, e.pointerId, q);
           return;
         }
-        for (let i = 0; i < 3; i++) {
-          const r = this.slotRect(i);
-          if (!this.drag && this.tray[i].cd <= 0 && q.x >= r.x && q.x < r.x + r.w && q.y >= r.y && q.y < r.y + r.h) {
-            this.drag = { id: e.pointerId, slot: i, sx: q.x, sy: q.y, x0: q.x, y0: q.y, moved: false };
+        // Tap control: a piece in hand goes down the moment the field is touched. Waiting for
+        // the lift would cost the whole press, and this game is played on the reflex.
+        if (this.armed != null && !this.drag && q.y < TRAY_Y && !this.buttons.some((b) => q.x >= b.x && q.x < b.x + b.w && q.y >= b.y && q.y < b.y + b.h)) {
+          const slot = this.tray[this.armed];
+          if (slot.cd > 0) this.armed = null;
+          else {
+            const g = this.aim(slot.piece, q.x, q.y, false);
+            if (g.ok && this.tryPlace(g.shape, g.col, g.row, this.gi, true)) {
+              Audio8.sfx.place();
+              slot.cd = SLOT_CD;
+              this.armed = null;
+            } else Audio8.sfx.invalid();   // a miss keeps the piece in hand, ready for another go
+            this.draw();                   // on screen now, not on the next frame
             return;
           }
         }
+        for (let i = 0; i < 3; i++) {
+          const r = this.slotRect(i);
+          if (!this.drag && this.tray[i].cd <= 0 && q.x >= r.x && q.x < r.x + r.w && q.y >= r.y && q.y < r.y + r.h) {
+            // touching a slot already takes its piece in hand, so the tray lights up under the
+            // thumb rather than on the lift; a second touch on the same slot turns it instead
+            const held = this.armed === i;
+            this.drag = { id: e.pointerId, slot: i, sx: q.x, sy: q.y, x0: q.x, y0: q.y, moved: false, held };
+            this.armed = i;
+            if (!held) Audio8.sfx.select();
+            this.draw();
+            return;
+          }
+        }
+        // the rest of the tray is the place to put a picked piece back down
+        if (q.y >= TRAY_Y && this.armed != null) { this.armed = null; Audio8.sfx.click(); }
       }
     },
 
@@ -527,7 +558,12 @@
       if (this.ink && e.pointerId === this.ink.id) { Paint.move(this, q); return; }
       if (!this.drag || e.pointerId !== this.drag.id) return;
       this.dragTo(q);
-      if (Math.hypot(q.x - this.drag.x0, q.y - this.drag.y0) > 6) this.drag.moved = true;
+      if (!this.drag.moved && Math.hypot(q.x - this.drag.x0, q.y - this.drag.y0) > 6) {
+        this.drag.moved = true;
+        // dragging is not picking up: a piece only stays in hand if the touch stayed put, so a
+        // dragger who aborts never finds the next tap on the field laying a block for them
+        if (!this.drag.held && this.armed === this.drag.slot) this.armed = null;
+      }
     },
 
     pointerUp(e) {
@@ -539,13 +575,17 @@
         const d = this.drag, slot = this.tray[d.slot];
         this.dragTo(q);
         if (!d.moved) {
-          slot.piece.v = (slot.piece.v + 1) % PIECES[slot.piece.p].v.length;
-          Audio8.sfx.rotate();
+          // the touch already took it in hand, so a tap on a slot that was holding it turns it
+          if (d.held) {
+            slot.piece.v = (slot.piece.v + 1) % PIECES[slot.piece.p].v.length;
+            Audio8.sfx.rotate();
+          }
         } else if (q.y < TRAY_Y) {
           const g = this.ghost();
           if (g.ok && this.tryPlace(g.shape, g.col, g.row, this.gi, true)) {
             Audio8.sfx.place();
             slot.cd = SLOT_CD;
+            if (this.armed === d.slot) this.armed = null;
           } else Audio8.sfx.invalid();
         }
         this.drag = null;
@@ -781,11 +821,20 @@
       this.tray.forEach((s, i) => {
         const r = this.slotRect(i);
         const dragging = this.drag && this.drag.slot === i && this.drag.moved;
+        const picked = this.armed === i && !dragging;
         // on a tunnel level the slot that fits the next wall is lit up
         const wanted = s.cd <= 0 && this.world.tunnels && Tunnel.wants(this, s.piece.p);
         ctx.fillStyle = '#1f0c3e'; ctx.fillRect(r.x, r.y, r.w, r.h);
-        ctx.fillStyle = s.flash > 0 && Math.floor(this.time * 16) % 2 ? '#ffffff' : dragging ? pal.main : wanted ? pal.hi : '#3d2f7a';
+        ctx.fillStyle = s.flash > 0 && Math.floor(this.time * 16) % 2 ? '#ffffff' : dragging ? pal.main : picked || wanted ? pal.hi : '#3d2f7a';
         ctx.fillRect(r.x, r.y, r.w, 1); ctx.fillRect(r.x, r.y + r.h - 1, r.w, 1); ctx.fillRect(r.x, r.y, 1, r.h); ctx.fillRect(r.x + r.w - 1, r.y, 1, r.h);
+        // the piece in hand keeps a second, breathing frame until it is placed or put back
+        if (picked) {
+          ctx.globalAlpha = 0.4 + 0.4 * Math.sin(this.time * 8);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(r.x - 1, r.y - 1, r.w + 2, 1); ctx.fillRect(r.x - 1, r.y + r.h, r.w + 2, 1);
+          ctx.fillRect(r.x - 1, r.y - 1, 1, r.h + 2); ctx.fillRect(r.x + r.w, r.y - 1, 1, r.h + 2);
+          ctx.globalAlpha = 1;
+        }
         if (s.cd > 0) {
           ctx.fillStyle = pal.dark;
           ctx.fillRect(r.x + 4, r.y + r.h - 6, Math.round((r.w - 8) * (1 - s.cd / SLOT_CD)), 2);

@@ -181,11 +181,12 @@
       // one slot per missing piece is protected, every other idle slot can be traded in -
       // three copies of the same needed piece must not lock the other one out
       const keep = new Set(), donors = [];
-      for (const s of game.tray) {
+      for (let i = 0; i < game.tray.length; i++) {
+        const s = game.tray[i];
         if (s.cd > 0) continue;
         const hit = need.find((q) => q.p === s.piece.p && !keep.has(q.p));
         if (hit) keep.add(hit.p);
-        else donors.push(s);
+        else if (i !== game.armed) donors.push(s);   // never swap the piece out of the player's hand
       }
       for (const h of need) {
         if (keep.has(h.p)) continue;
