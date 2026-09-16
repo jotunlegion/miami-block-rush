@@ -5,6 +5,12 @@
   const DRAG_LIFT = 22;               // the held block rides this far above the fingertip
   const BTN_JUMP = { x: 6, y: TRAY_Y + 5, w: 68, h: 40 }, BTN_NITRO = { x: 406, y: TRAY_Y + 5, w: 68, h: 40 };
   const STAT_LABELS = ['ШВИДКІСТЬ', 'РОЗГІН', 'ПОЛІТ', 'МІЦНІСТЬ'];
+  // On a desk the tray is worked with the left hand while the right one points at the road:
+  // A S D take a piece, CTRL is nitro. The letters are written on the slots, but only where
+  // there are keys to press - a phone would just be carrying three dead letters around.
+  const SLOT_KEYS = ['A', 'S', 'D'];
+  const SLOT_KEY_CODE = { KeyA: 0, KeyS: 1, KeyD: 2 };
+  const HAS_KEYS = !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
 
   const screen = document.getElementById('screen');
   const sctx = screen.getContext('2d');
@@ -348,6 +354,18 @@
 
     slotRect(i) { return { x: 240 + (i - 1) * 84 - 38, y: TRAY_Y + 3, w: 76, h: 44 }; },
 
+    // A S D take a piece into the hand exactly as a thumb on the slot does, and the same key
+    // again puts it back - a key that is held down must never turn into a second meaning.
+    armSlot(i) {
+      if (this.state !== 'race' && this.state !== 'countdown') return;
+      if (this.level.draw || this.player.state === 'busted' || !this.tray[i]) return;
+      if (this.tray[i].cd > 0) { Audio8.sfx.invalid(); return; }
+      this.drag = null;
+      if (this.armed === i) { this.armed = null; Audio8.sfx.click(); }
+      else { this.armed = i; Audio8.sfx.select(); }
+      this.draw();
+    },
+
     // Where a piece lands for a fingertip at sx,sy. A dragged one hangs clear above the thumb,
     // since the whole point of dragging is watching the ghost; a tapped one lands centred on the
     // tap, because a tap means "here" and there is no ghost to read before the finger lifts.
@@ -359,6 +377,12 @@
       // never carries the piece away from the finger holding it
       let col = Math.round((sx + this.camX - sw / 2) / CELL);
       let row = Math.round((cy - sh / 2) / CELL);
+      // The grid ends at row 12 but the tray starts 14 pixels lower, so an aim read straight off
+      // the finger fell off the bottom of the field and the last strip above the tray - the very
+      // strip you build in, right under the car - answered nothing at all. The aim is pulled back
+      // onto the field instead: the edge of the road is a place you can point at, not a dead zone.
+      row = Math.max(1, Math.min(ROWS - shape.length, row));
+      col = Math.max(0, Math.min(this.world.cols - shape[0].length, col));
       // tutorial: a straight block dropped near the chasm snaps into it
       const gap = this.tut && !this.tut.bridged ? this.world.gap : null;
       if (gap && shape.length === 1 && Math.abs(row - gap.row) <= 1 && col + shape[0].length > gap.col - 2 && col < gap.col + gap.len + 2) {
@@ -838,6 +862,7 @@
           }
           ctx.globalAlpha = 1;
         }
+        if (HAS_KEYS) Font.draw(ctx, SLOT_KEYS[i], r.x + 4, r.y + 4, picked || dragging ? '#ffffff' : '#6d5a9c', 1, 'left', null);
         if (s.cd > 0) {
           ctx.fillStyle = pal.dark;
           ctx.fillRect(r.x + 4, r.y + r.h - 6, Math.round((r.w - 8) * (1 - s.cd / SLOT_CD)), 2);
@@ -1091,9 +1116,15 @@
   screen.addEventListener('pointercancel', () => { Game.drag = null; Game.ink = null; if (Game.grab) Game.releaseGrab(); });
   window.addEventListener('keydown', (e) => {
     if (Game.state === 'garage') { Garage.key(e.code); if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault(); return; }
-    if (Game.state !== 'race' || !Game.player || window.BOT_MODE) return;
-    if (e.code === 'Space' || e.code === 'ArrowUp') { Game.player.jump(); e.preventDefault(); }
-    if (e.code === 'KeyN' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') { if (!Game.player.useNitro()) Audio8.sfx.invalid(); }
+    if ((Game.state !== 'race' && Game.state !== 'countdown') || !Game.player || window.BOT_MODE) return;
+    if (e.repeat) return;   // a held key is one press, not a stutter of them
+    if (e.code === 'Space' || e.code === 'ArrowUp') { Game.player.jump(); Game.pressJ = 0.15; e.preventDefault(); }
+    if (e.code === 'ControlLeft' || e.code === 'ControlRight' || e.code === 'KeyN' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+      if (Game.player.useNitro()) Game.shake(2); else Audio8.sfx.invalid();
+      Game.pressN = 0.15;
+      e.preventDefault();
+    }
+    if (SLOT_KEY_CODE[e.code] != null) { Game.armSlot(SLOT_KEY_CODE[e.code]); e.preventDefault(); }
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) { Audio8.setEngine(0, false); Audio8.setSiren(0); } });
 

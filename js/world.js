@@ -7,16 +7,19 @@
   // 4 gentle up low, 5 gentle up high, 6 gentle down high, 7 gentle down low
   const OWNER_STATIC = 9;
 
-  // Pieces: each has variants (tap to cycle). Shape rows top->bottom.
+  // Pieces: shape rows top->bottom. The turns of a shape are separate pieces, not states of one,
+  // and `deal` is how many of them the bag hands out, counted from the front. A slope that meets
+  // the car with its high end is a wall at race speed, so the downhill turns are never dealt -
+  // they stay in the table because an AI builder still lays one to drop to a bag under the road.
   const PIECES = [
     { id: 'I4', weight: 5, v: [[[1, 1, 1, 1]]] },
     { id: 'I3', weight: 5, v: [[[1, 1, 1]]] },
     { id: 'I2', weight: 3, v: [[[1, 1]]] },
-    { id: 'RAMP', weight: 4, v: [[[0, 0, 4, 5], [1, 1, 1, 1]], [[6, 7, 0, 0], [1, 1, 1, 1]]] },
-    { id: 'GLIDE', weight: 3, v: [[[4, 5]], [[6, 7]]] },
-    { id: 'STEEP', weight: 2, v: [[[0, 2], [2, 1]], [[3, 0], [1, 3]]] },
-    { id: 'LAUNCH', weight: 3, v: [[[0, 0, 2], [4, 5, 1]], [[3, 0, 0], [1, 6, 7]]] },
-    { id: 'KICK', weight: 3, v: [[[0, 0, 2], [1, 1, 1]], [[3, 0, 0], [1, 1, 1]]] },
+    { id: 'RAMP', weight: 4, deal: 1, v: [[[0, 0, 4, 5], [1, 1, 1, 1]], [[6, 7, 0, 0], [1, 1, 1, 1]]] },
+    { id: 'GLIDE', weight: 3, deal: 1, v: [[[4, 5]], [[6, 7]]] },
+    { id: 'STEEP', weight: 2, deal: 1, v: [[[0, 2], [2, 1]], [[3, 0], [1, 3]]] },
+    { id: 'LAUNCH', weight: 3, deal: 1, v: [[[0, 0, 2], [4, 5, 1]], [[3, 0, 0], [1, 6, 7]]] },
+    { id: 'KICK', weight: 3, deal: 1, v: [[[0, 0, 2], [1, 1, 1]], [[3, 0, 0], [1, 1, 1]]] },
     { id: 'T', weight: 2, v: [[[1, 1, 1], [0, 1, 0]], [[0, 1, 0], [1, 1, 1]]] },
     { id: 'L', weight: 2, v: [[[1, 1, 1], [1, 0, 0]], [[1, 1, 1], [0, 0, 1]], [[1, 0, 0], [1, 1, 1]], [[0, 0, 1], [1, 1, 1]]] },
   ];
@@ -35,12 +38,12 @@
 
   // There is no turning a block in this game - it is played too fast to spend a beat on it -
   // so the turns of a shape are not states of one piece, they are separate pieces, and the bag
-  // deals them like any other. A shape's weight is split evenly over the turns it has.
+  // deals them like any other. A shape's weight is split evenly over the turns it deals.
   function randomPiece(r) {
     let x = r() * TOTAL_W;
     for (let i = 0; i < PIECES.length; i++) {
       x -= PIECES[i].weight;
-      if (x <= 0) return { p: i, v: Math.floor(r() * PIECES[i].v.length) };
+      if (x <= 0) return { p: i, v: Math.floor(r() * (PIECES[i].deal || PIECES[i].v.length)) };
     }
     return { p: 0, v: 0 };
   }
