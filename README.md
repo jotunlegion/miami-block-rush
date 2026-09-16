@@ -8,6 +8,8 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 
 - Two ways to lay a block: drag it out of the tray, or tap it once to take it in hand and tap
   the field to drop it there. Both work everywhere, tunnel levels included
+- No turning a piece: the game runs too fast to spend a beat on it. Every turn of a shape is
+  its own piece and the tray deals it like any other, mirrored ramps included
 - Neon levels (4, 9, 14, ...): no blocks - you paint the road with your finger from a limited can of paint
 - Tunnel levels (8, 23, 38, ...): three parallel tunnels, one per racer, blocked by walls missing one or
   two pieces - drop them in and the filled column clears, Tetris style

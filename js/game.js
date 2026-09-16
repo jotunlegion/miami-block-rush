@@ -531,12 +531,11 @@
         for (let i = 0; i < 3; i++) {
           const r = this.slotRect(i);
           if (!this.drag && this.tray[i].cd <= 0 && q.x >= r.x && q.x < r.x + r.w && q.y >= r.y && q.y < r.y + r.h) {
-            // touching a slot already takes its piece in hand, so the tray lights up under the
-            // thumb rather than on the lift; a second touch on the same slot turns it instead
-            const held = this.armed === i;
-            this.drag = { id: e.pointerId, slot: i, sx: q.x, sy: q.y, x0: q.x, y0: q.y, moved: false, held };
+            // touching a slot takes its piece in hand, full stop - the tray lights up under the
+            // thumb rather than on the lift, and no second meaning is hiding behind the same tap
+            this.drag = { id: e.pointerId, slot: i, sx: q.x, sy: q.y, x0: q.x, y0: q.y, moved: false };
+            if (this.armed !== i) Audio8.sfx.select();
             this.armed = i;
-            if (!held) Audio8.sfx.select();
             this.draw();
             return;
           }
@@ -558,11 +557,13 @@
       if (this.ink && e.pointerId === this.ink.id) { Paint.move(this, q); return; }
       if (!this.drag || e.pointerId !== this.drag.id) return;
       this.dragTo(q);
-      if (!this.drag.moved && Math.hypot(q.x - this.drag.x0, q.y - this.drag.y0) > 6) {
-        this.drag.moved = true;
-        // dragging is not picking up: a piece only stays in hand if the touch stayed put, so a
-        // dragger who aborts never finds the next tap on the field laying a block for them
-        if (!this.drag.held && this.armed === this.drag.slot) this.armed = null;
+      if (!this.drag.moved) {
+        // the slop is a real distance on the glass, not a virtual one. At phone scale six virtual
+        // units is four CSS pixels - less than the smudge an ordinary finger leaves on a tap - so
+        // a tap read as a drag, the piece never stayed in hand and the tray only ever turned it.
+        const slop = (9 * dpr) / scale;
+        // and a finger that never leaves the tray is still tapping, however far it slid
+        if (q.y < TRAY_Y || Math.hypot(q.x - this.drag.x0, q.y - this.drag.y0) > slop) this.drag.moved = true;
       }
     },
 
@@ -574,19 +575,15 @@
       if (this.drag) {
         const d = this.drag, slot = this.tray[d.slot];
         this.dragTo(q);
-        if (!d.moved) {
-          // the touch already took it in hand, so a tap on a slot that was holding it turns it
-          if (d.held) {
-            slot.piece.v = (slot.piece.v + 1) % PIECES[slot.piece.p].v.length;
-            Audio8.sfx.rotate();
-          }
-        } else if (q.y < TRAY_Y) {
+        if (q.y < TRAY_Y) {
+          // the finger came up over the field, so the piece goes down there and leaves the hand
+          // whichever way it went: a drag that missed is an abandoned drag, not a piece still held
           const g = this.ghost();
           if (g.ok && this.tryPlace(g.shape, g.col, g.row, this.gi, true)) {
             Audio8.sfx.place();
             slot.cd = SLOT_CD;
-            if (this.armed === d.slot) this.armed = null;
           } else Audio8.sfx.invalid();
+          if (this.armed === d.slot) this.armed = null;
         }
         this.drag = null;
         this.draw(); // show the piece now instead of waiting for the next frame
@@ -823,16 +820,22 @@
         const dragging = this.drag && this.drag.slot === i && this.drag.moved;
         const picked = this.armed === i && !dragging;
         // on a tunnel level the slot that fits the next wall is lit up
-        const wanted = s.cd <= 0 && this.world.tunnels && Tunnel.wants(this, s.piece.p);
+        const wanted = s.cd <= 0 && this.world.tunnels && Tunnel.wants(this, s.piece);
         ctx.fillStyle = '#1f0c3e'; ctx.fillRect(r.x, r.y, r.w, r.h);
         ctx.fillStyle = s.flash > 0 && Math.floor(this.time * 16) % 2 ? '#ffffff' : dragging ? pal.main : picked || wanted ? pal.hi : '#3d2f7a';
         ctx.fillRect(r.x, r.y, r.w, 1); ctx.fillRect(r.x, r.y + r.h - 1, r.w, 1); ctx.fillRect(r.x, r.y, 1, r.h); ctx.fillRect(r.x + r.w - 1, r.y, 1, r.h);
-        // the piece in hand keeps a second, breathing frame until it is placed or put back
+        // The piece in hand has to read at arm's length on a phone in one glance, so it gets a
+        // lit floor, a breathing frame two pixels out, and the block itself raised off the slot.
         if (picked) {
-          ctx.globalAlpha = 0.4 + 0.4 * Math.sin(this.time * 8);
+          const pulse = 0.5 + 0.5 * Math.sin(this.time * 7);
+          ctx.globalAlpha = 0.14 + 0.1 * pulse;
+          ctx.fillStyle = pal.hi; ctx.fillRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+          ctx.globalAlpha = 0.45 + 0.55 * pulse;
           ctx.fillStyle = '#ffffff';
-          ctx.fillRect(r.x - 1, r.y - 1, r.w + 2, 1); ctx.fillRect(r.x - 1, r.y + r.h, r.w + 2, 1);
-          ctx.fillRect(r.x - 1, r.y - 1, 1, r.h + 2); ctx.fillRect(r.x + r.w, r.y - 1, 1, r.h + 2);
+          for (let k = 1; k <= 2; k++) {
+            ctx.fillRect(r.x - k, r.y - k, r.w + k * 2, 1); ctx.fillRect(r.x - k, r.y + r.h + k - 1, r.w + k * 2, 1);
+            ctx.fillRect(r.x - k, r.y - k, 1, r.h + k * 2); ctx.fillRect(r.x + r.w + k - 1, r.y - k, 1, r.h + k * 2);
+          }
           ctx.globalAlpha = 1;
         }
         if (s.cd > 0) {
@@ -840,14 +843,19 @@
           ctx.fillRect(r.x + 4, r.y + r.h - 6, Math.round((r.w - 8) * (1 - s.cd / SLOT_CD)), 2);
           return;
         }
-        const piece = PIECES[s.piece.p], shape = piece.v[s.piece.v];
+        const shape = PIECES[s.piece.p].v[s.piece.v];
         const sw = shape[0].length * CELL, sh = shape.length * CELL;
-        const x0 = Math.round(r.x + r.w / 2 - sw / 2), y0 = Math.round(r.y + r.h / 2 - sh / 2);
+        // a held block sits off its slot, with its own shadow left behind on the floor
+        const lift = picked ? 2 + Math.round(Math.sin(this.time * 7)) : 0;
+        const x0 = Math.round(r.x + r.w / 2 - sw / 2), y0 = Math.round(r.y + r.h / 2 - sh / 2) - lift;
+        if (lift) {
+          ctx.globalAlpha = 0.35; ctx.fillStyle = '#000000';
+          shape.forEach((line, dy) => line.forEach((ty, dx) => { if (ty) ctx.fillRect(x0 + dx * CELL + 1, y0 + dy * CELL + lift + 2, CELL, CELL); }));
+          ctx.globalAlpha = 1;
+        }
         if (dragging) ctx.globalAlpha = 0.25;
         shape.forEach((line, dy) => line.forEach((ty, dx) => { if (ty) ctx.drawImage(Art.tile(ty, this.gi), x0 + dx * CELL, y0 + dy * CELL); }));
         ctx.globalAlpha = 1;
-        if (piece.v.length > 1)
-          for (let k = 0; k < piece.v.length; k++) { ctx.fillStyle = k === s.piece.v ? pal.hi : '#3d2f7a'; ctx.fillRect(r.x + r.w - 4 - k * 3, r.y + 3, 2, 2); }
       });
       ctx.restore();
     },

@@ -33,11 +33,14 @@
     };
   }
 
+  // There is no turning a block in this game - it is played too fast to spend a beat on it -
+  // so the turns of a shape are not states of one piece, they are separate pieces, and the bag
+  // deals them like any other. A shape's weight is split evenly over the turns it has.
   function randomPiece(r) {
     let x = r() * TOTAL_W;
     for (let i = 0; i < PIECES.length; i++) {
       x -= PIECES[i].weight;
-      if (x <= 0) return { p: i, v: 0 };
+      if (x <= 0) return { p: i, v: Math.floor(r() * PIECES[i].v.length) };
     }
     return { p: 0, v: 0 };
   }

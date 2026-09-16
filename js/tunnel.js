@@ -162,7 +162,7 @@
         const wall = this.nextWall(w, p.tunnel, p.x);
         if (wall)
           for (const h of this.need(w, wall))
-            if (!game.tray.some((s) => s.cd <= 0 && s.piece.p === h.p)) return { p: h.p, v: h.v };
+            if (!game.tray.some((s) => s.cd <= 0 && s.piece.p === h.p && s.piece.v === h.v)) return { p: h.p, v: h.v };
       }
       return World.randomPiece(Math.random);
     },
@@ -180,16 +180,19 @@
       if (!need.length) return;
       // one slot per missing piece is protected, every other idle slot can be traded in -
       // three copies of the same needed piece must not lock the other one out
+      // a turn of a shape is its own piece now, so a slot only counts as covering a hole when
+      // it holds that exact turn: the mirrored ramp is no substitute for the one the wall wants
+      const key = (q) => q.p + ':' + q.v;
       const keep = new Set(), donors = [];
       for (let i = 0; i < game.tray.length; i++) {
         const s = game.tray[i];
         if (s.cd > 0) continue;
-        const hit = need.find((q) => q.p === s.piece.p && !keep.has(q.p));
-        if (hit) keep.add(hit.p);
+        const hit = need.find((q) => key(q) === key(s.piece) && !keep.has(key(q)));
+        if (hit) keep.add(key(hit));
         else if (i !== game.armed) donors.push(s);   // never swap the piece out of the player's hand
       }
       for (const h of need) {
-        if (keep.has(h.p)) continue;
+        if (keep.has(key(h))) continue;
         const slot = donors.shift();
         if (!slot) return;
         slot.piece = { p: h.p, v: h.v };
@@ -200,11 +203,11 @@
       }
     },
 
-    wants(game, p) {
+    wants(game, piece) {
       const w = game.world, pl = game.player;
       if (!pl || pl.tunnel == null) return false;
       const wall = this.nextWall(w, pl.tunnel, pl.x);
-      return !!wall && this.need(w, wall).some((h) => h.p === p);
+      return !!wall && this.need(w, wall).some((h) => h.p === piece.p && h.v === piece.v);
     },
 
     // ---------------- rivals ----------------
