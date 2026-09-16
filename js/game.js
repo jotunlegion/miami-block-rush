@@ -2,6 +2,7 @@
 (function () {
   const { CELL, ROWS, FIELD_H, SAFE_W, SAFE_H, PIECES } = World;
   const TRAY_Y = 222, SLOT_CD = 0.8, STEP = 1 / 120;
+  const DRAG_LIFT = 22;               // the held block rides this far above the fingertip
   const BTN_JUMP = { x: 6, y: TRAY_Y + 5, w: 68, h: 40 }, BTN_NITRO = { x: 406, y: TRAY_Y + 5, w: 68, h: 40 };
   const STAT_LABELS = ['ШВИДКІСТЬ', 'РОЗГІН', 'ПОЛІТ', 'МІЦНІСТЬ'];
 
@@ -349,10 +350,10 @@
       const d = this.drag, slot = this.tray[d.slot];
       const shape = PIECES[slot.piece.p].v[slot.piece.v];
       const sw = shape[0].length * CELL, sh = shape.length * CELL;
-      // d.wx/d.wy are world coordinates that only the finger moves, so the piece stays on the
-      // cell it was aimed at instead of being dragged forward by the scrolling road
-      let col = Math.round((d.wx - sw / 2) / CELL);
-      let row = Math.round((d.wy - 34 - sh / 2) / CELL);
+      // the piece hangs off the fingertip in screen space: centred on it, lifted clear of it,
+      // and the cell is read off that every frame, so the scrolling road never carries it away
+      let col = Math.round((d.sx + this.camX - sw / 2) / CELL);
+      let row = Math.round((d.sy - DRAG_LIFT - sh) / CELL);
       // tutorial: a straight block dropped near the chasm snaps into it
       const gap = this.tut && !this.tut.bridged ? this.world.gap : null;
       if (gap && shape.length === 1 && Math.abs(row - gap.row) <= 1 && col + shape[0].length > gap.col - 2 && col < gap.col + gap.len + 2) {
@@ -507,18 +508,16 @@
         for (let i = 0; i < 3; i++) {
           const r = this.slotRect(i);
           if (!this.drag && this.tray[i].cd <= 0 && q.x >= r.x && q.x < r.x + r.w && q.y >= r.y && q.y < r.y + r.h) {
-            this.drag = { id: e.pointerId, slot: i, sx: q.x, sy: q.y, wx: q.x + this.camX, wy: q.y, x0: q.x, y0: q.y, moved: false };
+            this.drag = { id: e.pointerId, slot: i, sx: q.x, sy: q.y, x0: q.x, y0: q.y, moved: false };
             return;
           }
         }
       }
     },
 
-    // move the held piece by the finger delta only: the camera must not drag it along
+    // the ghost is derived from the fingertip, so holding it is just remembering where that is
     dragTo(q) {
-      const d = this.drag;
-      d.wx += q.x - d.sx; d.wy += q.y - d.sy;
-      d.sx = q.x; d.sy = q.y;
+      this.drag.sx = q.x; this.drag.sy = q.y;
     },
 
     pointerMove(e) {
