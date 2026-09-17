@@ -416,18 +416,25 @@
       this.results = this.cars
         .map((c) => ({ c, total: c.state === 'busted' && !L.bonusRun ? 0 : this.keep(c, c.money + c.bonus) }))
         .sort((a, b) => b.total - a.total);
-      // A bonus run is a score run: being taken is how it ends, not a reason to lose the haul.
-      // It always counts as passed, because it is a bonus and not a gate.
+      // Winning and passing are two different things. A Blacklist duel is a gate: there the
+      // rival's pink slip is the prize and second place gets nothing. An ordinary level is
+      // passed by reaching the finish at all - coming last is punished by the money you did
+      // not earn, which is what the next car costs, and not by being sent round again.
+      // The two ways to fail one: the cell, since a cop touch is bought off at $50 a time and
+      // being taken in means there was nothing left to pay with, and the finish line itself -
+      // the rivals crossing it start a countdown, and a car still out on the road when that
+      // runs out never finished the track, so there is nothing to pass it with.
       this.win = L.bonusRun ? true : p.state !== 'busted' && p.place > 0 && (this.boss ? p.place === 1 : this.results[0].c === p);
+      this.passed = this.boss ? this.win : L.bonusRun ? true : p.state !== 'busted' && p.place > 0;
       // A bonus run pays what you picked up, full stop: the cops ending the run is the whole
       // penalty, and taxing the crashes on top would punish the same mistake twice.
       this.earned = L.bonusRun ? p.money : p.state === 'busted' ? 0 : this.keep(p, p.money + p.bonus + (this.win ? L.winBonus : 0));
       this.record = L.bonusRun ? Profile.bonusScore(this.earned) : false;
       this.distance = L.endless ? Math.round(((this.world.slid || 0) + p.x) / 16) : 0;
-      this.unlocked = !this.boss && !this.free && this.win && Profile.data.level <= L.n;
+      this.unlocked = !this.boss && !this.free && this.passed && Profile.data.level <= L.n;
       this.slip = this.boss && this.win ? Profile.careerWin(this.boss) : false;
-      if (this.win && this.free) Profile.freeDone(this.free);
-      else if (this.win && !this.boss) Profile.levelDone(L.n);
+      if (this.passed && this.free) Profile.freeDone(this.free);
+      else if (this.passed && !this.boss) Profile.levelDone(L.n);
       Profile.raceDone(this.earned, this.win);
       Audio8.setEngine(0, false); Audio8.setSiren(0);
       if (this.win) Audio8.sfx.finish();
@@ -1318,7 +1325,14 @@
       const L = this.level, busted = this.player.state === 'busted';
       if (this.boss) { this.drawDuelResults(); ctx.restore(); return; }
       const free = this.free, FR = free ? Levels.FREE[free] : null;
-      const title = busted && !L.bonusRun ? 'ТЕБЕ ЗАТРИМАЛИ' : this.win ? (free ? FR.name + ' ' + L.freeLevel + ' - ГОТОВО!' : L.bonusRun ? 'ЗАЇЗД ЗАКІНЧЕНО' : 'РІВЕНЬ ' + L.n + ' ПРОЙДЕНО!') : 'ПОРАЗКА';
+      // Coming last is not losing here - the cell and the finish line are. A level ends in
+      // defeat when the cops took you, or when the road ran out of time under you; come in
+      // third of three and it is still passed.
+      const title = busted && !L.bonusRun ? 'ТЕБЕ ЗАТРИМАЛИ'
+        : L.bonusRun ? 'ЗАЇЗД ЗАКІНЧЕНО'
+        : !this.passed ? 'ТИ НЕ ДОЇХАВ'
+        : free ? FR.name + ' ' + L.freeLevel + ' - ГОТОВО!'
+        : 'РІВЕНЬ ' + L.n + ' ПРОЙДЕНО!';
       const main = Art.TEAM[this.gi].main;
       const label = free ? FR.name + ' ' + L.freeLevel : L.bonusRun ? 'БОНУСНИЙ ЗАЇЗД' : 'РІВЕНЬ ' + L.n;
       const again = () => UI.transition('shutter', () => this.replay(), label);
@@ -1329,11 +1343,12 @@
       const earned = 'ЗАРОБЛЕНО: ' + UI.money(this.earned) + (this.win && L.winBonus ? ' (+' + L.winBonus + ' ЗА ПЕРЕМОГУ)' : '');
       let sub = '';
       if (L.bonusRun) sub = busted ? 'ПОЛІЦІЯ ВЗЯЛА ТЕБЕ НА ' + this.distance + ' М' : 'ТРАСА ПРОЙДЕНА: ' + this.distance + ' М';
-      else if (free && this.win) sub = 'ДАЛІ: ' + FR.name + ' ' + (L.freeLevel + 1);
-      else if (this.win) { const nx = Levels.config(L.n + 1); sub = (this.unlocked ? 'ВІДКРИТО ' : 'ДАЛІ ') + 'РІВЕНЬ ' + nx.n + ': ' + nx.name; }
-      else if (this.cars.length > 1) { const top = this.results[0].c; sub = top.state === 'busted' ? 'ПЕРЕМОЖЦІВ НЕМАЄ' : 'ПЕРЕМОЖЕЦЬ: ' + top.g.name; }
-      Font.draw(ctx, title, CX, P ? 16 : 18, this.win ? '#ffc31f' : '#ff3ea5', P ? 2 : 3, 'center', '#12082a');
-      Font.draw(ctx, sub, CX, P ? 38 : 46, this.win ? '#b6ff6a' : '#d8ccff', 1, 'center');
+      else if (busted) sub = 'НЕ БУЛО ЧИМ ВІДКУПИТИСЬ';
+      else if (!this.passed) sub = 'ТРАСУ ТРЕБА ДОЇХАТИ ДО КІНЦЯ';
+      else if (free) sub = 'ДАЛІ: ' + FR.name + ' ' + (L.freeLevel + 1);
+      else { const nx = Levels.config(L.n + 1); sub = (this.unlocked ? 'ВІДКРИТО ' : 'ДАЛІ ') + 'РІВЕНЬ ' + nx.n + ': ' + nx.name; }
+      Font.draw(ctx, title, CX, P ? 16 : 18, this.passed ? '#ffc31f' : '#ff3ea5', P ? 2 : 3, 'center', '#12082a');
+      Font.draw(ctx, sub, CX, P ? 38 : 46, this.passed ? '#b6ff6a' : '#ff5c7a', 1, 'center');
       if (L.bonusRun) {
         const cy = P ? 96 : 84;
         Font.draw(ctx, 'ЗІБРАНО', CX, cy, '#8a7aa8', 1, 'center');
@@ -1370,7 +1385,7 @@
         });
         Music.clipText(ctx, earned, 8, 54 + this.results.length * 52 + 10, DW - 16, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, false, this.time);
         const bw = Math.min(200, DW - 24), bx = Math.round(CX - bw / 2);
-        if (this.win) {
+        if (this.passed) {
           this.button(bx, DH - 102, bw, 26, free ? 'ДАЛІ: ' + (L.freeLevel + 1) : 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, next, 2);
           this.button(bx, DH - 70, bw, 26, 'ПЕРЕГРАТИ', '#29e0d0', again, 2);
         } else this.button(bx, DH - 70, bw, 26, 'ЩЕ РАЗ', main, again, 2);
@@ -1396,7 +1411,7 @@
         Font.draw(ctx, '$' + r.total, 430, y + 11, '#ffffff', 1, 'right');
       });
       Font.draw(ctx, earned, 240, 178, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
-      if (this.win) {
+      if (this.passed) {
         this.button(36, 192, 150, 22, free ? 'ДАЛІ: ' + FR.name + ' ' + (L.freeLevel + 1) : 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, next);
         this.button(194, 192, 114, 22, 'ПЕРЕГРАТИ', '#29e0d0', again);
         this.button(316, 192, 128, 22, free ? 'ДО ЗАЇЗДІВ' : 'В ГАРАЖ', '#9d8cff', garage);
