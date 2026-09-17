@@ -22,6 +22,7 @@
   let P = false, DW = 480, DH = 270, CX = 240, R = Layout.race, TRAY_Y = R.trayY;
 
   function resize() {
+    const wasPortrait = P;
     const L = Layout.set(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
     dpr = L.dpr; scale = L.scale; vw = L.vw; vh = L.vh; ox = L.ox; oy = L.oy;
     P = L.portrait; DW = L.W; DH = L.H; CX = L.cx; R = L.race; TRAY_Y = R.trayY;
@@ -29,6 +30,7 @@
     buf.width = vw; buf.height = vh;
     ctx.imageSmoothingEnabled = false;
     sctx.imageSmoothingEnabled = false;
+    if (P !== wasPortrait && window.Game && window.Garage && Game.state === 'garage') Garage.relayout();
   }
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', resize);
@@ -167,31 +169,50 @@
       return World.randomPiece(Math.random);
     },
 
-    // withPickups: AI builders keep clear of money and nitro; the player's pieces may cover them
-    rects(withPickups = true, skipGi = null) {
+    // withPickups: AI builders keep clear of money and nitro; the player's pieces may cover them.
+    // noCars: a piece you lay yourself ignores traffic altogether - whatever is standing where
+    // it lands rides up onto it. Fencing off every car turned the square around your own
+    // bumper, the one place a race is won or lost, into the one square you could not build in.
+    // The rivals still plan around traffic, and the helicopter is no car to lift, so it stays.
+    rects(withPickups = true, skipGi = null, noCars = false) {
       const out = withPickups ? World.bagRects(this.world) : [];
-      const tun = !!this.world.tunnels;
-      for (const c of this.cars.concat(this.police.map((q) => q.car))) {
-        if (c.state === 'wreck' || c.state === 'fell' || c.state === 'busted') continue;
-        // in a tunnel the wall to patch is right at your own bumper, so your car is no obstacle
-        if (tun && skipGi != null && c.gi === skipGi) continue;
-        out.push(c.bbox());
-      }
+      if (!noCars)
+        for (const c of this.cars.concat(this.police.map((q) => q.car))) {
+          if (c.state === 'wreck' || c.state === 'fell' || c.state === 'busted') continue;
+          if (skipGi != null && c.gi === skipGi) continue;
+          out.push(c.bbox());
+        }
       if (this.heli) out.push(this.heli.rect());
       return out;
     },
 
     tryPlace(shape, col, row, owner, replace = false) {
-      if (!World.canPlace(this.world, shape, col, row, this.rects(!replace, replace ? owner : null), replace)) return false;
+      if (!World.canPlace(this.world, shape, col, row, this.rects(!replace, null, replace), replace)) return false;
       if (this.world.draw) return this.paintShape(shape, col, row, owner);
       if (replace) { this.shatterUnder(shape, col, row, owner); this.clearPickups(shape, col, row); }
       World.place(this.world, shape, col, row, owner);
+      if (replace) this.liftCars(shape, col, row);
       const pal = Art.teamPal(owner);
       shape.forEach((line, dy) => line.forEach((t, dx) => {
         if (t) Particles.spark((col + dx) * CELL + 8, (row + dy) * CELL + 8, 2, [pal.hi, '#ffffff'], 40);
       }));
       if (this.world.tunnels) Tunnel.onPlace(this, shape, col, row);
       return true;
+    },
+
+    // Anything the new piece landed on top of is set on the piece rather than buried in it.
+    liftCars(shape, col, row) {
+      for (const c of this.cars.concat(this.police.map((q) => q.car))) {
+        if (!c.active && c.state !== 'finished') continue;
+        const b = c.bbox();
+        let top = Infinity;
+        shape.forEach((line, dy) => line.forEach((t, dx) => {
+          if (!t) return;
+          const x0 = (col + dx) * CELL, y0 = (row + dy) * CELL;
+          if (x0 < b.x + b.w && x0 + CELL > b.x && y0 < b.y + b.h && y0 + CELL > b.y) top = Math.min(top, y0);
+        }));
+        if (top < Infinity) c.liftOnto(top);
+      }
     },
 
     // on a neon level the rivals paint too: the top surface of their piece becomes a line
@@ -398,7 +419,8 @@
       }
       const sxL = col * CELL - this.camX;
       const onScreen = sxL + sw > -ox && sxL < vw - ox && sy < TRAY_Y;
-      const ok = onScreen && World.canPlace(this.world, shape, col, row, this.rects(false, this.gi), true);
+      // the ghost has to answer exactly what tryPlace will, cars included
+      const ok = onScreen && World.canPlace(this.world, shape, col, row, this.rects(false, null, true), true);
       const swap = new Set();
       shape.forEach((line, dy) => line.forEach((t, dx) => { if (t && World.cellAt(this.world, col + dx, row + dy)) swap.add(dy * 16 + dx); }));
       return { shape, col, row, ok, swap };

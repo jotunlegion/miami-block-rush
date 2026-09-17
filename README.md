@@ -14,6 +14,8 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 - A dragged block hangs on the fingertip in screen space while its landing cells are outlined
   on the road, so the block never drifts back with the scrolling world. With a mouse, a piece
   taken from the tray becomes the cursor
+- A piece you lay yourself ignores traffic: drop it where a car stands and the car rides up
+  onto it. Nothing around your own bumper is a dead zone any more
 - Slots deal the next piece the instant one is spent - no cooldown to wait out mid-race
 - No turning a piece: the game runs too fast to spend a beat on it. Every turn of a shape is
   its own piece and the tray deals it like any other - all but the turns that meet the car with

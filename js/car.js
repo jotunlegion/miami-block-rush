@@ -4,7 +4,7 @@
   // The jump is a hop out of trouble, not a second way to fly: at 72 it clears a block and
   // a bit, where the old 125 carried the car four rows up and made half the ramps pointless.
   const JUMP_V = 72;
-  const { isSolid, normalAt } = World;
+  const { isSolid, normalAt, CELL } = World;
 
   const GANGS = [
     { key: 'vice', name: 'OCEAN DRIVE', title: 'СУПЕРКАР', desc: 'ШВИДКИЙ, АЛЕ КРИХКИЙ',
@@ -108,7 +108,7 @@
     get canJump() {
       if (this.state !== 'drive' || this.jumpCd > 0) return false;
       if (this.grounded) return true;
-      if (Math.hypot(this.vx, this.vy) > 50) return false;
+      if (Math.hypot(this.vx, this.vy) > 70) return false;
       const c = Math.cos(this.a), s = Math.sin(this.a);
       for (const [lx, ly] of this.hull) {
         const px = this.x + lx * c - ly * s, py = this.y + lx * s + ly * c;
@@ -300,8 +300,14 @@
           this.vx += Jx / this.m; this.vy += Jy / this.m;
           this.va += (rx * Jy - ry * Jx) / this.I;
         }
-        for (let s = 0.5; s <= 8; s += 0.5)
-          if (!isSolid(this.w, px + nx * s, py + ny * s)) { this.x += nx * s; this.y += ny * s; break; }
+        let freed = false;
+        for (let s = 0.5; s <= 18; s += 0.5)
+          if (!isSolid(this.w, px + nx * s, py + ny * s)) { this.x += nx * s; this.y += ny * s; freed = true; break; }
+        // deeper than the normal reaches - two blocks closing on the same corner, or a piece
+        // laid straight over the car - so climb out the one way that is always open: up
+        if (!freed)
+          for (let s = 1; s <= 2 * CELL; s++)
+            if (!isSolid(this.w, px, py - s)) { this.y -= s; this.vy = Math.min(this.vy, 0); break; }
       }
     }
 
@@ -370,8 +376,12 @@
       let ux = Math.sin(this.a), uy = -Math.cos(this.a);
       // tipped over on its nose or roof: hop straight up and a little forward instead of sideways
       if (uy > -0.6) { ux = 0.35; uy = -0.94; }
-      this.vy = Math.min(this.vy, 0) + uy * JUMP_V;
-      this.vx = Math.max(0, this.vx + ux * JUMP_V);
+      // On the road the hop stays short, the way it is meant to be. Wedged - no wheel on the
+      // ground, barely moving, body against a block - it has to clear the block that is
+      // holding the car, or the button reads as broken just when it matters most.
+      const v = this.grounded ? JUMP_V : JUMP_V * 1.8;
+      this.vy = Math.min(this.vy, 0) + uy * v;
+      this.vx = Math.max(0, this.vx + ux * v);
       // the forward push lasts as long as the hop does, and the hop is a third of what it was
       this.va *= 0.3; this.jumpCd = 0.6; this.jumpT = 0.5; this.wasGrounded = false;
       Particles.spark(this.x, this.y + 8, 8, ['#ffffff', '#b9a8e0'], 60);
@@ -427,9 +437,28 @@
       if (this.isPlayer) Audio8.sfx.respawn();
     }
 
+    // The body and the wheels under it, with a pixel of slack - no more. The old box was
+    // built from the sprite width and came out 38x23 around a 32x11 car, which fenced off a
+    // three-by-three of cells nobody could build in and left the car looking clear of a
+    // block it was still colliding with.
     bbox() {
-      const r = this.map.w / 2 + 2;
-      return { x: this.x - r, y: this.y - r * 0.6, w: r * 2, h: r * 1.2 };
+      const hw = this.bw / 2 + 1;
+      const up = this.bh / 2 + 1;
+      const down = Math.max(this.bh / 2, (this.map.wheelY || 4) + 3.5) + 1;
+      return { x: this.x - hw, y: this.y - up, w: hw * 2, h: up + down };
+    }
+
+    // A piece laid where the car stands lifts it onto the piece instead of being refused.
+    // The wheels are reset so the suspension re-reads the new ground on the next step.
+    liftOnto(surfaceY) {
+      const clear = Math.max(this.bh / 2, (this.map.wheelY || 4) + 3.5) + 1;
+      const rest = Math.max(CELL, surfaceY - clear);
+      if (rest < this.y) { this.y = rest; this.vy = Math.min(this.vy, -34); }
+      this.a *= 0.5; this.va *= 0.4;
+      for (const wh of this.wheels) { wh.comp = 0; wh.contact = false; }
+      this.stuck = 0;
+      Particles.spark(this.x, surfaceY, 6, ['#ffffff', '#ffc31f'], 70);
+      if (this.isPlayer && window.Game) Game.shake(1.5);
     }
 
     draw(ctx, camX, time) {

@@ -46,6 +46,30 @@
   const VW = () => Layout.W, VH = () => Layout.H;
   const MX = () => Layout.cx;
 
+  // Portrait stacks its panels off the bottom edge: the carousel sits on it, the action
+  // button above that, the list above that. Everything left over is the stage, so the car
+  // gets the room instead of an acre of empty floor between it and the first panel.
+  const GAP = 6;
+  function stack(rows, plateH) {
+    const carouselY = VH() - 70;
+    let y = carouselY - 12, plateY = 0;
+    if (plateH) { plateY = y - plateH; y = plateY - GAP; }
+    const actY = y - 20;
+    const listH = 14 + rows * ROW_H + 4;
+    return { carouselY, plateY, actY, listY: actY - GAP - listH, listH };
+  }
+
+  // the top edge of the first panel on this screen - the floor is drawn just above it
+  function panelTop() {
+    if (S.screen === 'visual') return stack(6, 26).listY;
+    if (S.screen === 'perf') return stack(5, 0).listY - GAP - 84;
+    if (inLot()) return VH() - 140;
+    return VH() - 176;
+  }
+  // the garage floor, and the height a car standing on it is drawn at
+  const floorLine = () => (PT() ? Math.min(Math.round(VH() * 0.62), panelTop() - 40) : E.oy + 172);
+  const stageY = () => floorLine() - 26;
+
   const CL_ROWS = 8, CL_H = 28;
   // portrait stacks the rival card over the list instead of beside it, so the list takes
   // whatever is left under the card; the same for the jukebox above its now-playing deck
@@ -115,15 +139,15 @@
     S.previewCu = null; S.previewUp = null; S.confirm = false; S.slide.x = 0; S.toast = null; S.item = 0; S.scroll = 0;
     S.cat.sel = 0; S.cat.f = 0;
     UI.tween(S.dim, { a: 0 }, 0.3);
-    const port = PT(), mx = MX();
+    const port = PT(), mx = MX(), sy = port ? stageY() : 0;
     if (screen === 'hub') {
       if (!Profile.data.current) S.menu.sel = 1;
-      S.cam.cx = mx; S.cam.cy = port ? Math.round(VH() * 0.3) : 126; S.cam.zoom = 2.6;
+      S.cam.cx = mx; S.cam.cy = port ? sy : 126; S.cam.zoom = 2.6;
       flyTo('full'); S.menu.f = S.menu.sel;
     }
-    if (screen === 'visual') { UI.tween(S.cam, port ? { cx: mx, cy: 86 } : { cx: 168, cy: 116 }, 0.6, 'inOutCubic'); pickVisualCat(0); }
-    if (screen === 'perf') { UI.tween(S.cam, port ? { cx: mx, cy: 80 } : { cx: 232, cy: 124 }, 0.6, 'inOutCubic'); pickPerfCat(0); }
-    if (screen === 'lot') { S.cam.cx = mx; S.cam.cy = port ? Math.round(VH() * 0.28) : 112; setEra(S.era, true); flyTo('full', { zoom: 5 }); }
+    if (screen === 'visual') { UI.tween(S.cam, port ? { cx: mx, cy: sy } : { cx: 168, cy: 116 }, 0.6, 'inOutCubic'); pickVisualCat(0); }
+    if (screen === 'perf') { UI.tween(S.cam, port ? { cx: mx, cy: sy } : { cx: 232, cy: 124 }, 0.6, 'inOutCubic'); pickPerfCat(0); }
+    if (screen === 'lot') { S.cam.cx = mx; S.cam.cy = port ? sy : 112; setEra(S.era, true); flyTo('full', { zoom: 5 }); }
     if (screen === 'career') {
       const list = careerList(), nr = nextRival();
       S.item = nr ? list.indexOf(nr) : 0;
@@ -134,7 +158,7 @@
       S.scroll = Math.max(0, Math.min(S.item - 2, Music.tracks.length - jukeRows()));
     }
     if (screen === 'mycars') {
-      S.cam.cx = mx; S.cam.cy = port ? Math.round(VH() * 0.28) : 112;
+      S.cam.cx = mx; S.cam.cy = port ? sy : 112;
       S.list = Catalog.ALL.filter((c) => Profile.owned(c.id)).map((c) => c.id);
       S.idx = Math.max(0, S.list.indexOf(Profile.data.current));
       flyTo('full', { zoom: 5 });
@@ -255,7 +279,7 @@
     const g = c.getContext('2d');
     // the floor line is what everything else is measured from, and in portrait it sits at
     // the waist of the screen so the turntable has headroom and the panels have a floor
-    const floorY = port ? Math.round(vh * 0.46) : oy + 172;
+    const floorY = floorLine();
     const px = (x, y, col) => { g.fillStyle = col; g.fillRect(x, y, 1, 1); };
     const wallA = showroom ? [46, 20, 84] : [36, 19, 58], wallB = showroom ? [28, 12, 52] : [20, 11, 36];
     const img = g.createImageData(vw, vh);
@@ -281,8 +305,10 @@
       }
       const dx0 = port ? Math.round(vw * 0.26) : ox + 160;
       const dx1 = port ? Math.round(vw * 0.74) : ox + 320;
-      const dy0 = port ? Math.round(floorY * 0.2) : oy + 40;
-      const open = port ? Math.round(floorY * 0.62) : oy + 120;
+      // the door is a door, not a wall: it keeps its own height and stands on the floor,
+      // however far down the floor happens to be on this screen
+      const dy0 = port ? Math.max(24, floorY - 236) : oy + 40;
+      const open = port ? dy0 + Math.round((floorY - dy0) * 0.5) : oy + 120;
       g.fillStyle = '#0a0614'; g.fillRect(dx0 - 4, dy0 - 4, dx1 - dx0 + 8, floorY - dy0 + 4);
       const sky = ['#3d1066', '#621676', '#8e2078', '#bb3272', '#e04c68', '#f7715a', '#ff9a52', '#ffc45c'];
       for (let y = open; y < floorY - 4; y++) { g.fillStyle = sky[Math.min(7, Math.floor(((y - open) / (floorY - 4 - open)) * 8))]; g.fillRect(dx0, y, dx1 - dx0, 1); }
@@ -311,8 +337,9 @@
       }
     } else {
       const wn = port ? 3 : 5, wstep = port ? Math.round(vw / 2.4) : 130, wgap = port ? 30 : 60;
+      const wHi = port ? Math.min(floorY - oy - 24, 190) : floorY - oy - 24;
       for (let i = 0; i < wn; i++) {
-        const wx = ox - wgap + i * wstep, wy = oy + 14, ww = port ? wstep - 20 : 110, wh = floorY - wy - 10;
+        const wx = ox - wgap + i * wstep, wh = wHi, wy = floorY - 10 - wh, ww = port ? wstep - 20 : 110;
         g.fillStyle = '#120a2e'; g.fillRect(wx, wy, ww, wh);
         for (let x = wx; x < wx + ww; x++) {
           const h = 20 + ((x * 7) % 31) + ((x >> 3) % 3) * 14;
@@ -349,7 +376,7 @@
   }
 
   function drawBg(showroom) {
-    const key = [E.vw, E.vh, E.oy, PT(), showroom].join(',');
+    const key = [E.vw, E.vh, E.oy, PT(), showroom, floorLine()].join(',');
     if (key !== bgKey) { bgCanvas = buildBg(showroom); bgKey = key; }
     ctx.drawImage(bgCanvas, 0, 0);
     if (!showroom && S.screen === 'hub') {
@@ -624,23 +651,23 @@
     drawStage(curMap());
     ctx.save(); ctx.translate(E.ox, E.oy);
     topBar('ВІЗУАЛ', 'spray');
-    const port = PT();
-    const lp = listPanel(cat.name, rows, (i) => { S.previewCu = Object.assign({}, e.cu, rows[i].apply); if (rows[i].installed) S.previewCu = null; }, { y: 140, rows: 6 });
+    const port = PT(), L = stack(6, 26);
+    const lp = listPanel(cat.name, rows, (i) => { S.previewCu = Object.assign({}, e.cu, rows[i].apply); if (rows[i].installed) S.previewCu = null; }, { y: L.listY, rows: 6 });
     const r = rows[S.item];
     if (r && !r.installed) {
       const can = Profile.cash >= r.price;
-      actionButton(lp.x, lp.y, lp.w, (r.price ? 'КУПИТИ ' + UI.money(r.price) : 'ВСТАНОВИТИ'), can ? '#ffc31f' : '#ff5c7a', () => {
+      actionButton(lp.x, port ? L.actY : lp.y, lp.w, (r.price ? 'КУПИТИ ' + UI.money(r.price) : 'ВСТАНОВИТИ'), can ? '#ffc31f' : '#ff5c7a', () => {
         if (!Profile.spend(r.price)) { Audio8.sfx.invalid(); toast('НЕ ВИСТАЧАЄ ГРОШЕЙ', '#ff5c7a'); return; }
         e.cu = Object.assign({}, e.cu, r.apply); Profile.save(); S.previewCu = null;
         Audio8.sfx.buy(); installFx(cat.cam); toast('ВСТАНОВЛЕНО!', '#9bf08a');
       }, can);
-    } else if (r) actionButton(lp.x, lp.y, lp.w, 'ВСТАНОВЛЕНО', '#6a5a88', () => {}, false);
+    } else if (r) actionButton(lp.x, port ? L.actY : lp.y, lp.w, 'ВСТАНОВЛЕНО', '#6a5a88', () => {}, false);
     const k = UI.Ease.outCubic(S.enter.k);
-    const fx = Math.round((port ? 4 : 4) - 150 * (1 - k)), fy = port ? lp.y + 26 : 172;
+    const fx = Math.round(4 - 150 * (1 - k)), fy = port ? L.plateY : 172;
     slant(fx, fy, port ? VW() - 8 : 132, 26, '#12082ae8', '#3d2f7a');
     Font.draw(ctx, 'ПРИМІРКА', fx + 10, fy + 4, '#8a7aa8');
     Font.draw(ctx, r ? r.label : '', fx + 10, fy + 14, S.previewCu ? '#ffc31f' : '#ffffff');
-    carousel(VISUAL, S.cat, port ? VH() - 70 : 206, () => {}, pickVisualCat);
+    carousel(VISUAL, S.cat, port ? L.carouselY : 206, () => {}, pickVisualCat);
     toastDraw();
     ctx.restore();
     particlesAndFx();
@@ -654,27 +681,28 @@
     drawStage(curMap());
     ctx.save(); ctx.translate(E.ox, E.oy);
     topBar('ТЮНІНГ', 'engine');
-    const port = PT();
+    const port = PT(), L = stack(5, 0), statY = L.listY - GAP - 84;
     const rows = Catalog.LEVEL_NAMES.map((ln, j) => {
       const installed = e.up[u.id] === j, owned = e.own[u.id] >= j;
       return { label: (j ? 'ПАКЕТ ' : '') + ln, installed, tag: owned ? 'КУПЛЕНО' : UI.money(Profile.upgradeCost(id, u.id, j)), tagColor: owned ? '#9bf08a' : '#ffc31f' };
     });
-    const lp = listPanel(u.name, rows, (j) => { const up = Object.assign({}, e.up); up[u.id] = j; S.previewUp = j === e.up[u.id] ? null : up; }, { y: 218, rows: 5 });
+    const lp = listPanel(u.name, rows, (j) => { const up = Object.assign({}, e.up); up[u.id] = j; S.previewUp = j === e.up[u.id] ? null : up; }, { y: L.listY, rows: 5 });
     const s = Profile.stats(id, e.up), ps = S.previewUp ? Profile.stats(id, S.previewUp) : null;
-    if (port) statPanel(4, 118, s, ps, VW() - 8);
+    if (port) statPanel(4, statY, s, ps, VW() - 8);
     else statPanel(4, 34, s, ps);
-    Font.draw(ctx, u.desc, Math.round(12 - 150 * (1 - UI.Ease.outCubic(S.enter.k))), port ? 206 : 106, accentHi());
+    Font.draw(ctx, u.desc, Math.round(12 - 150 * (1 - UI.Ease.outCubic(S.enter.k))), port ? statY - 12 : 106, accentHi());
     const j = S.item, cost = Profile.upgradeCost(id, u.id, j), owned = e.own[u.id] >= j;
-    if (j === e.up[u.id]) actionButton(lp.x, lp.y, lp.w, 'ВСТАНОВЛЕНО', '#6a5a88', () => {}, false);
+    const ay = port ? L.actY : lp.y;
+    if (j === e.up[u.id]) actionButton(lp.x, ay, lp.w, 'ВСТАНОВЛЕНО', '#6a5a88', () => {}, false);
     else {
       const can = owned || Profile.cash >= cost;
-      actionButton(lp.x, lp.y, lp.w, owned ? 'ВСТАНОВИТИ' : 'КУПИТИ ' + UI.money(cost), can ? (owned ? '#9bf08a' : '#ffc31f') : '#ff5c7a', () => {
+      actionButton(lp.x, ay, lp.w, owned ? 'ВСТАНОВИТИ' : 'КУПИТИ ' + UI.money(cost), can ? (owned ? '#9bf08a' : '#ffc31f') : '#ff5c7a', () => {
         if (!owned && !Profile.spend(cost)) { Audio8.sfx.invalid(); toast('НЕ ВИСТАЧАЄ ГРОШЕЙ', '#ff5c7a'); return; }
         e.up[u.id] = j; e.own[u.id] = Math.max(e.own[u.id] || 0, j); Profile.save(); S.previewUp = null;
         Audio8.sfx.upgrade(); installFx(PERF_CAM[u.id]); toast('ПАКЕТ ' + Catalog.LEVEL_NAMES[j] + '!', '#9bf08a');
       }, can);
     }
-    carousel(U, S.cat, port ? VH() - 70 : 206, () => {}, pickPerfCat);
+    carousel(U, S.cat, port ? L.carouselY : 206, () => {}, pickPerfCat);
     toastDraw();
     ctx.restore();
     particlesAndFx();
@@ -699,7 +727,7 @@
         E.button(x, y, tabW, 15, () => { if (S.era !== era && !S.sliding) { Audio8.sfx.select(); setEra(era); } });
       });
     } else Font.draw(ctx, S.list.length + ' / ' + Catalog.ALL.length + ' У КОЛЕКЦІЇ', mx, 36, '#b9a8e0', 1, 'center');
-    const ay = port ? Math.round(VH() * 0.26) : 94;
+    const ay = port ? stageY() - 17 : 94;
     [[-1, port ? 2 : 6, 'arrowL'], [1, port ? VW() - 28 : 448, 'arrowR']].forEach(([dir, x, ic]) => {
       const nudge = Math.round(Math.sin(S.t * 5) * 1.5) * dir;
       slant(x + nudge, ay, 26, 34, '#12082ae8', accent(), 5);
@@ -711,7 +739,7 @@
     slant(px0, py, pw, ph, '#12082aee', accent(), 10);
     // the price shares the name's line, so the name gets only what the price leaves it
     const tagTxt = owned ? 'У ГАРАЖІ' : UI.money(car.price);
-    const nameW = port ? px0 + pw - 14 - Font.measure(tagTxt, 2) - (px0 + 16) - 8 : 300;
+    const nameW = port ? px0 + pw - 14 - Font.measure(tagTxt, 2) - (px0 + 16) - 14 : 300;
     if (port) Music.clipText(ctx, car.name, px0 + 16, py + 8, nameW, '#ffffff', 2, false, S.t);
     else Font.draw(ctx, car.name, px0 + 16, py + 8, '#ffffff', 2);
     Music.clipText(ctx, car.year + '   ' + (car.desc || ''), px0 + 14, py + 27, port ? pw - 28 : 300, '#b9a8e0', 1, false, S.t);
@@ -966,7 +994,7 @@
   // the patch of screen the turntable owns: spinning the car must never start on a panel
   function stageBox() {
     const vis = S.screen === 'visual' || S.screen === 'perf';
-    if (PT()) return { y0: 30, y1: vis ? 132 : inLot() ? VH() - 148 : VH() - 184, x0: 0, x1: VW() };
+    if (PT()) return { y0: 30, y1: panelTop() - 4, x0: 0, x1: VW() };
     return { y0: 28, y1: 196, x0: vis ? 140 : 0, x1: vis ? 316 : 480 };
   }
 
@@ -1038,5 +1066,9 @@
     }
   }
 
-  window.Garage = { enter, update, draw, pointerDown, pointerMove, pointerUp, key, get screen() { return S.screen; }, set onRace(fn) { S.onRace = fn; }, set onCareer(fn) { S.onCareer = fn; } };
+  // the phone turned over: the camera and the panels were placed in the other box, so the
+  // screen is laid out again from scratch rather than left half in one and half in the other
+  const relayout = () => { if (S.screen) setup(S.screen); };
+
+  window.Garage = { enter, update, draw, pointerDown, pointerMove, pointerUp, key, relayout, get screen() { return S.screen; }, set onRace(fn) { S.onRace = fn; }, set onCareer(fn) { S.onCareer = fn; } };
 })();
