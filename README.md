@@ -23,13 +23,12 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
   it can be laid in mid air over the hole and still be driven onto
 - Replaying a level hands back the same track, seed and all, not a fresh roll of the same
   number - you lose the run, not the road you had learned
-- A level is passed by reaching the finish, whatever place you came in: coming last already
-  costs you the money you did not earn, and that money is what the next car costs, so being
-  sent round again would charge for the same race twice. Two things fail a level - the cell,
-  since a cop touch is bought off at $50 a time and being taken in means there was nothing
-  left to pay with, and the finish line itself, because the rivals crossing it start a
-  countdown and a car still out on the road when it runs out never finished the track. A
-  Blacklist duel is a gate instead: the pink slip goes to first place only
+- Coming last is not losing a level: it is passed whatever place you came in, because losing
+  already costs you the money you did not earn, and that money is what the next car costs -
+  being sent round again would charge for the same race twice. The one thing that fails a
+  level is the cell, since a cop touch is bought off at $50 a time and being taken in means
+  there was nothing left to pay with. A Blacklist duel is a gate instead: the pink slip goes
+  to first place only
 - No turning a piece: the game runs too fast to spend a beat on it. Every turn of a shape is
   its own piece and the tray deals it like any other - all but the turns that meet the car with
   the high end of the slope, which are a wall at race speed and are never dealt to anyone

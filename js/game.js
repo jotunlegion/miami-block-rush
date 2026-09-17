@@ -420,12 +420,10 @@
       // rival's pink slip is the prize and second place gets nothing. An ordinary level is
       // passed by reaching the finish at all - coming last is punished by the money you did
       // not earn, which is what the next car costs, and not by being sent round again.
-      // The two ways to fail one: the cell, since a cop touch is bought off at $50 a time and
-      // being taken in means there was nothing left to pay with, and the finish line itself -
-      // the rivals crossing it start a countdown, and a car still out on the road when that
-      // runs out never finished the track, so there is nothing to pass it with.
+      // The one way to fail one is the cell: a cop touch is bought off at $50 a time, so
+      // being taken in means there was nothing left to pay with. That run is over.
       this.win = L.bonusRun ? true : p.state !== 'busted' && p.place > 0 && (this.boss ? p.place === 1 : this.results[0].c === p);
-      this.passed = this.boss ? this.win : L.bonusRun ? true : p.state !== 'busted' && p.place > 0;
+      this.passed = this.boss ? this.win : L.bonusRun ? true : p.state !== 'busted';
       // A bonus run pays what you picked up, full stop: the cops ending the run is the whole
       // penalty, and taxing the crashes on top would punish the same mistake twice.
       this.earned = L.bonusRun ? p.money : p.state === 'busted' ? 0 : this.keep(p, p.money + p.bonus + (this.win ? L.winBonus : 0));
@@ -1325,12 +1323,10 @@
       const L = this.level, busted = this.player.state === 'busted';
       if (this.boss) { this.drawDuelResults(); ctx.restore(); return; }
       const free = this.free, FR = free ? Levels.FREE[free] : null;
-      // Coming last is not losing here - the cell and the finish line are. A level ends in
-      // defeat when the cops took you, or when the road ran out of time under you; come in
-      // third of three and it is still passed.
+      // Coming last is not losing here - only the cell is. A level ends in defeat when the
+      // cops took you, and in every other case it is passed, whatever place you came in.
       const title = busted && !L.bonusRun ? 'ТЕБЕ ЗАТРИМАЛИ'
         : L.bonusRun ? 'ЗАЇЗД ЗАКІНЧЕНО'
-        : !this.passed ? 'ТИ НЕ ДОЇХАВ'
         : free ? FR.name + ' ' + L.freeLevel + ' - ГОТОВО!'
         : 'РІВЕНЬ ' + L.n + ' ПРОЙДЕНО!';
       const main = Art.TEAM[this.gi].main;
@@ -1344,7 +1340,6 @@
       let sub = '';
       if (L.bonusRun) sub = busted ? 'ПОЛІЦІЯ ВЗЯЛА ТЕБЕ НА ' + this.distance + ' М' : 'ТРАСА ПРОЙДЕНА: ' + this.distance + ' М';
       else if (busted) sub = 'НЕ БУЛО ЧИМ ВІДКУПИТИСЬ';
-      else if (!this.passed) sub = 'ТРАСУ ТРЕБА ДОЇХАТИ ДО КІНЦЯ';
       else if (free) sub = 'ДАЛІ: ' + FR.name + ' ' + (L.freeLevel + 1);
       else { const nx = Levels.config(L.n + 1); sub = (this.unlocked ? 'ВІДКРИТО ' : 'ДАЛІ ') + 'РІВЕНЬ ' + nx.n + ': ' + nx.name; }
       Font.draw(ctx, title, CX, P ? 16 : 18, this.passed ? '#ffc31f' : '#ff3ea5', P ? 2 : 3, 'center', '#12082a');
