@@ -11,7 +11,10 @@
   let data = null;
 
   const blankUp = () => { const u = {}; Catalog.UPGRADES.forEach((x) => (u[x.id] = 0)); return u; };
-  const blank = () => ({ v: 2, gang: DEFAULT_GANG, cash: START_CASH, current: null, level: 1, career: { beaten: [] }, cars: {}, stats: { races: 0, wins: 0, earned: 0, best: 0 } });
+  // free: one level counter per mechanic, kept apart from the campaign level on purpose -
+  // a free ride is practice, not progress, and must not push the Blacklist along
+  const blankFree = () => ({ blocks: 1, neon: 1, tunnel: 1 });
+  const blank = () => ({ v: 2, gang: DEFAULT_GANG, cash: START_CASH, current: null, level: 1, career: { beaten: [] }, free: blankFree(), bonusBest: 0, cars: {}, stats: { races: 0, wins: 0, earned: 0, best: 0 } });
 
   function load() {
     try {
@@ -28,6 +31,8 @@
       e.cu = Object.assign(Custom.defaults(Catalog.byId[id]), e.cu || {});
     }
     if (data.gang == null) data.gang = DEFAULT_GANG;
+    data.free = Object.assign(blankFree(), data.free || {});
+    data.bonusBest = data.bonusBest || 0;
     if (!data.cars[data.current]) data.current = Object.keys(data.cars)[0] || null;
     return data;
   }
@@ -132,6 +137,12 @@
 
   function levelDone(n) { if (n >= data.level) data.level = n + 1; save(); }
 
+  // ---------- free ride ----------
+  const freeLevel = (m) => data.free[m] || 1;
+  const freeOpen = (m) => data.level >= Levels.FREE[m].gate;
+  function freeDone(m) { data.free[m] = freeLevel(m) + 1; save(); }
+  function bonusScore(v) { if (v > data.bonusBest) { data.bonusBest = v; save(); return true; } return false; }
+
   // ---------- Blacklist career ----------
   const beaten = (rank) => data.career.beaten.includes(rank);
   function careerState(r) {
@@ -154,6 +165,8 @@
 
   window.Profile = {
     load, save, setGang, levelDone, beaten, careerState, carOk, careerWin, buy, spend, stats, rating, bars, upgradeCost, partCost, def, playerDef, topSpeed, rivalDefs, raceDone, reset, GANG_LOOK,
+    freeLevel, freeOpen, freeDone, bonusScore,
+    get bonusBest() { return data.bonusBest; },
     get data() { return data; },
     get cash() { return data.cash; },
     entry: (id) => data.cars[id],

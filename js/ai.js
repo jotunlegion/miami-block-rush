@@ -110,8 +110,8 @@
 
   // police helicopter (level 20+): randomly speeds up and slows down, dips toward the road and knocks cars around
   class Helicopter {
-    constructor(game) {
-      this.x = game.player.x - 260; this.y = 30; this.vx = 0;
+    constructor(game, i = 0) {
+      this.x = game.player.x - 260 - i * 260; this.y = 30 + i * 26; this.vx = 0;
       this.mood = 0; this.speedMul = 1; this.ty = 40; this.t = 0; this.chop = 0;
       this.hitCd = new Map();
     }

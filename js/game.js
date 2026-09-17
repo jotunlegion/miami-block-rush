@@ -78,6 +78,7 @@
   const Game = {
     state: 'title', time: 0, selected: 0, buttons: [], shakeAmt: 0, camX: 0,
     world: null, cars: [], police: [], ais: [], tray: [], drag: null, banner: null, acc: 0,
+    helis: [], free: null, seed: 0,
     armed: null,                      // tap control: the tray slot whose piece is in hand
     mouse: null,                      // last mouse position, design space - null on a touchscreen
     paint: 0, paintMax: 0, ink: null, dryT: 0,
@@ -94,23 +95,36 @@
       Audio8.setEngine(0, false); Audio8.setSiren(0);
       Garage.onRace = () => this.startRace();
       Garage.onCareer = (r) => this.startCareer(r);
+      Garage.onFree = (m) => this.startFree(m);
       Garage.enter((opts && opts.screen) || 'hub', opts);
     },
 
-    startRace(n) {
+    // A free ride plays one mechanic at its own counter; everything else about the race is
+    // the same, so it comes in here as a level config rather than a second race loop.
+    startFree(mode, k) {
+      const lvl = k || Profile.freeLevel(mode);
+      this.startRace(null, null, Levels.freeConfig(mode, lvl));
+    },
+
+    // seed: replaying a level must hand back the same track, not roll a new one
+    startRace(n, seed, cfg) {
       Particles.clear();
-      const L = (this.level = Levels.config(n || Profile.data.level || 1));
+      const L = (this.level = cfg || Levels.config(n || Profile.data.level || 1));
+      this.free = L.free || null;
+      this.seed = seed == null ? (Math.random() * 1e9) | 0 : seed;
       const gi = Profile.data.gang;
       this.gi = gi;
-      this.world = World.create((Math.random() * 1e9) | 0, L);
+      this.world = World.create(this.seed, L);
       const order = [0, 1, 2].filter((i) => i !== gi).slice(0, L.rivals);
       const rivals = Profile.rivalDefs(order);
       this.cars = rivals.map((d, i) => new Car(this.world, d, 215 - i * 55, 128, false, order[i]));
       this.player = new Car(this.world, Profile.playerDef(), 270, 128, true, gi);
       this.cars.push(this.player);
       this.ais = rivals.map((d, i) => new AIBuilder(this.cars[i], this, { delay: L.ai.delay + i * 0.1, mistake: L.ai.mistake + i * 0.02 }));
-      this.police = [95, 40].slice(0, L.police).map((x, i) => new Police(this.world, x, this, i));
-      this.heli = L.heli ? new Helicopter(this) : null;
+      const px = L.policeX || [95, 40];
+      this.police = px.slice(0, L.police).map((x, i) => new Police(this.world, x, this, i));
+      this.helis = [];
+      for (let i = 0; i < (L.heli || 0); i++) this.helis.push(new Helicopter(this, i));
       this.tut = L.tutorial ? { bridged: false } : null;
       this.boss = null;
       if (L.tunnel) this.toTunnels();
@@ -119,6 +133,25 @@
       if (!L.draw) for (let i = 0; i < 3; i++) this.tray.push({ piece: L.tutorial ? { p: 0, v: 0 } : this.nextPiece() });
       Paint.reset(this);
       this.resetRace();
+    },
+
+    // An endless run never reaches the end of its grid: once the player is deep enough in,
+    // the world slides back under everything at once and a fresh chunk is generated ahead.
+    // Nothing on screen moves, so the only way to tell is the odometer.
+    slideWorld() {
+      const w = this.world, keep = 60;
+      if (this.player.x < (w.cols - 900) * CELL) return;
+      const shift = Math.floor(this.player.x / CELL) - keep;
+      if (shift < 200) return;
+      const px = World.recycle(w, this.level, shift);
+      for (const c of this.cars) c.x -= px;
+      for (const q of this.police) q.car.x -= px;
+      for (const h of this.helis) h.x -= px;
+      for (const pt of Particles.list) pt.x -= px;
+      if (this.ink) this.ink.x -= px;
+      if (this.grab) this.grab.ty = this.grab.p.y;
+      this.camX -= px;
+      w.slid = (w.slid || 0) + px;
     },
 
     // the player takes the middle deck, the rivals the one above and the one below
@@ -142,21 +175,30 @@
       Audio8.startMusic('race');
     },
 
+    // Replaying is replaying THIS track: the same seed and the same config, not a fresh roll
+    // of the same level number. Losing a run you had read is one thing; losing the road you
+    // had learned is another.
+    replay() {
+      if (this.boss) this.startCareer(this.boss, this.seed);
+      else this.startRace(null, this.seed, this.level);
+    },
+
     // Blacklist duel: one on one with the rival's tuned car; the winner takes the loser's pink slip
-    startCareer(r) {
+    startCareer(r, seed) {
       Particles.clear();
       const L = (this.level = Levels.boss(r));
       const gi = Profile.data.gang;
       this.gi = gi;
-      this.world = World.create((Math.random() * 1e9) | 0, L);
+      this.seed = seed == null ? (Math.random() * 1e9) | 0 : seed;
+      this.world = World.create(this.seed, L);
       const bg = r.gang === gi ? (gi + 1) % 3 : r.gang;
       const def = Profile.def(r.car.id, r.bossUp, { glow: ['pink', 'gold', 'cyan'][bg] });
       this.cars = [new Car(this.world, def, 215, 128, false, bg)];
       this.player = new Car(this.world, Profile.playerDef(), 270, 128, true, gi);
       this.cars.push(this.player);
       this.ais = [new AIBuilder(this.cars[0], this, L.ai)];
-      this.police = []; this.heli = null; this.tut = null;
-      this.boss = r;
+      this.police = []; this.helis = []; this.tut = null;
+      this.free = null; this.boss = r;
       this.tray = [];
       for (let i = 0; i < 3; i++) this.tray.push({ piece: this.nextPiece() });
       Paint.reset(this);
@@ -182,7 +224,7 @@
           if (skipGi != null && c.gi === skipGi) continue;
           out.push(c.bbox());
         }
-      if (this.heli) out.push(this.heli.rect());
+      for (const h of this.helis) out.push(h.rect());
       return out;
     },
 
@@ -330,10 +372,11 @@
       }
     },
 
-    // a cop touch costs $50 while there is money on hand; a broke racer gets arrested
+    // a cop touch costs $50 while there is money on hand; a broke racer gets arrested.
+    // a bonus run is the chase itself: one touch and the run is over, money and all.
     onCaught(car, cop) {
       if (car.state === 'busted' || car.fineCd > 0) return;
-      if (car.money <= 0) { this.onBusted(car); return; }
+      if (this.level.bonusRun || car.money <= 0) { this.onBusted(car); return; }
       const fine = Math.min(50, car.money);
       car.money -= fine; car.fineCd = 0.8; cop.stun = 1;
       Particles.text(car.x, car.y - 18, '-$' + fine, '#ff5c7a');
@@ -361,13 +404,20 @@
       this.drag = null; this.armed = null;
       const p = this.player, L = this.level;
       this.results = this.cars
-        .map((c) => ({ c, total: c.state === 'busted' ? 0 : this.keep(c, c.money + c.bonus) }))
+        .map((c) => ({ c, total: c.state === 'busted' && !L.bonusRun ? 0 : this.keep(c, c.money + c.bonus) }))
         .sort((a, b) => b.total - a.total);
-      this.win = p.state !== 'busted' && p.place > 0 && (this.boss ? p.place === 1 : this.results[0].c === p);
-      this.earned = p.state === 'busted' ? 0 : this.keep(p, p.money + p.bonus + (this.win ? L.winBonus : 0));
-      this.unlocked = !this.boss && this.win && Profile.data.level <= L.n;
+      // A bonus run is a score run: being taken is how it ends, not a reason to lose the haul.
+      // It always counts as passed, because it is a bonus and not a gate.
+      this.win = L.bonusRun ? true : p.state !== 'busted' && p.place > 0 && (this.boss ? p.place === 1 : this.results[0].c === p);
+      // A bonus run pays what you picked up, full stop: the cops ending the run is the whole
+      // penalty, and taxing the crashes on top would punish the same mistake twice.
+      this.earned = L.bonusRun ? p.money : p.state === 'busted' ? 0 : this.keep(p, p.money + p.bonus + (this.win ? L.winBonus : 0));
+      this.record = L.bonusRun ? Profile.bonusScore(this.earned) : false;
+      this.distance = L.endless ? Math.round(((this.world.slid || 0) + p.x) / 16) : 0;
+      this.unlocked = !this.boss && !this.free && this.win && Profile.data.level <= L.n;
       this.slip = this.boss && this.win ? Profile.careerWin(this.boss) : false;
-      if (this.win && !this.boss) Profile.levelDone(L.n);
+      if (this.win && this.free) Profile.freeDone(this.free);
+      else if (this.win && !this.boss) Profile.levelDone(L.n);
       Profile.raceDone(this.earned, this.win);
       Audio8.setEngine(0, false); Audio8.setSiren(0);
       if (this.win) Audio8.sfx.finish();
@@ -465,7 +515,7 @@
       }
       this.ais.forEach((a) => a.update(dt));
       this.police.forEach((q) => q.update(dt, this));
-      if (this.heli) this.heli.update(dt, this);
+      for (const h of this.helis) h.update(dt, this);
       for (const c of this.cars) if (c.fineCd > 0) c.fineCd -= dt;
       if (this.tut) this.updateTutorial();
       if (this.level.draw) Paint.update(dt, this);
@@ -475,6 +525,7 @@
       if (w.tunnels) Tunnel.restock(this, dt);
 
       this.updatePlatforms(dt);
+      if (this.level.endless) this.slideWorld();
       // the faster the car goes the further left it sits, so more of the road shows ahead -
       // which matters most in portrait, where there is barely half a landscape view to spend
       const lead = R.lead;
@@ -559,7 +610,9 @@
         const f = this.toField(q);
         if (inR(this.level.draw ? R.jumpWide : R.jump)) { this.player.jump(); this.pressJ = 0.15; return; }
         if (!this.level.draw && inR(R.nitro)) { if (this.player.useNitro()) this.shake(2); else Audio8.sfx.invalid(); this.pressN = 0.15; return; }
-        if (!this.grab && q.y < TRAY_Y) {
+        // A piece in hand owns the next tap on the field, platforms included: on a level with
+        // drifting platforms the grab used to swallow the tap and the block stayed in hand.
+        if (!this.grab && this.armed == null && q.y < TRAY_Y) {
           const wx = f.x + this.camX;
           const pl = this.world.platforms.find((p) => wx >= p.x - 8 && wx < p.x + p.w + 8 && f.y >= p.y - 12 && f.y < p.y + 28);
           if (pl) { this.grab = { id: e.pointerId, p: pl, off: f.y - pl.y, ty: pl.y }; pl.held = true; Audio8.sfx.grab(); return; }
@@ -653,8 +706,8 @@
         try {
           const fs = el.requestFullscreen || el.webkitRequestFullscreen;
           if (fs && window.matchMedia('(pointer: coarse)').matches) {
-            const pr = fs.call(el);
-            if (pr && pr.then) pr.then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {});
+            // no orientation lock: the game lays itself out for whichever way the phone is held
+            fs.call(el);
           }
         } catch (err) { /* ignore */ }
         Profile.load();
@@ -862,7 +915,7 @@
 
       this.police.forEach((q) => q.draw(ctx, cx, t));
       this.cars.forEach((c) => c.draw(ctx, cx, t));
-      if (this.heli) this.heli.draw(ctx, cx, t);
+      for (const h of this.helis) h.draw(ctx, cx, t);
       Particles.draw(ctx, cx);
 
       const p = this.player;
@@ -1046,25 +1099,31 @@
           if (c.deaths) Font.draw(ctx, '-' + Math.round((1 - Balance.deathMul(c.deaths)) * 100) + '%', 18 + Font.measure(txt, 1), y, c.isPlayer && this.penaltyFlash > 0 && Math.floor(t * 8) % 2 ? '#ffffff' : '#ff5c7a');
         }
       });
-      // progress track
+      // progress track - an endless run has no finish to measure against, so it counts metres
+      if (this.level.endless) {
+        const m = Math.round(((this.world.slid || 0) + p.x) / 16);
+        Font.draw(ctx, m + ' М', Math.round((X0 + X1) / 2), ty - 2, '#ffc31f', 1, 'center');
+      } else {
       const fin = this.world.finishX;
       ctx.fillStyle = '#12082a'; ctx.fillRect(X0 - 2, ty, X1 - X0 + 4, 4);
       ctx.fillStyle = '#5a4a78'; ctx.fillRect(X0, ty + 1, X1 - X0, 2);
       for (let k = 0; k < 3; k++) { ctx.fillStyle = k % 2 ? '#12082a' : '#ffffff'; ctx.fillRect(X1 + 1, ty - 2 + k * 3, 3, 3); }
       const px = (x) => Math.round(X0 + Math.max(0, Math.min(1, x / fin)) * (X1 - X0));
       this.police.forEach((q) => { ctx.fillStyle = Math.floor(t * 7) % 2 ? '#ff2a3a' : '#2f6bff'; ctx.fillRect(px(q.x) - 1, ty - 1, 3, 6); });
-      if (this.heli) { ctx.fillStyle = '#9cc4ff'; ctx.fillRect(px(this.heli.x) - 2, ty - 4, 5, 2); }
+      for (const h of this.helis) { ctx.fillStyle = '#9cc4ff'; ctx.fillRect(px(h.x) - 2, ty - 4, 5, 2); }
       this.cars.forEach((c) => {
         if (c.state === 'busted') return;
         ctx.fillStyle = c.isPlayer ? '#ffffff' : Art.TEAM[c.gi].main;
         ctx.fillRect(px(c.x) - 2, c.isPlayer ? ty - 3 : ty - 1, c.isPlayer ? 5 : 3, c.isPlayer ? 10 : 6);
         if (c.isPlayer) { ctx.fillStyle = Art.TEAM[c.gi].main; ctx.fillRect(px(c.x) - 1, ty - 2, 3, 8); }
       });
+      }
       // position
       const key = (c) => (c.state === 'busted' ? -1e9 : c.place ? 1e6 - c.place : c.x);
       const pos = 1 + this.cars.filter((c) => c !== p && key(c) > key(p)).length;
-      Font.draw(ctx, 'ПОЗ ' + pos + '/' + this.cars.length, rightX, posY, '#ffffff', 1, 'right');
-      Font.draw(ctx, this.boss ? 'СПИСОК #' + this.boss.rank : 'РІВЕНЬ ' + this.level.n, rightX, lvlY, '#b9a8e0', 1, 'right');
+      if (this.level.bonusRun) Font.draw(ctx, 'КОПИ ' + this.police.length, rightX, posY, '#ff5c7a', 1, 'right');
+      else Font.draw(ctx, 'ПОЗ ' + pos + '/' + this.cars.length, rightX, posY, '#ffffff', 1, 'right');
+      Font.draw(ctx, this.free ? Levels.FREE[this.free].name + ' ' + this.level.freeLevel : this.boss ? 'СПИСОК #' + this.boss.rank : this.level.bonusRun ? 'БОНУС' : 'РІВЕНЬ ' + this.level.n, rightX, lvlY, '#b9a8e0', 1, 'right');
       if (p.boost > 0)
         for (let k = 0; k < 14; k++) {
           ctx.fillStyle = k % 3 ? '#ffffff55' : '#29d9ff88';
@@ -1231,17 +1290,41 @@
       ctx.save(); ctx.translate(ox, oy);
       const L = this.level, busted = this.player.state === 'busted';
       if (this.boss) { this.drawDuelResults(); ctx.restore(); return; }
-      const title = busted ? 'ТЕБЕ ЗАТРИМАЛИ' : this.win ? 'РІВЕНЬ ' + L.n + ' ПРОЙДЕНО!' : 'ПОРАЗКА';
+      const free = this.free, FR = free ? Levels.FREE[free] : null;
+      const title = busted && !L.bonusRun ? 'ТЕБЕ ЗАТРИМАЛИ' : this.win ? (free ? FR.name + ' ' + L.freeLevel + ' - ГОТОВО!' : L.bonusRun ? 'ЗАЇЗД ЗАКІНЧЕНО' : 'РІВЕНЬ ' + L.n + ' ПРОЙДЕНО!') : 'ПОРАЗКА';
       const main = Art.TEAM[this.gi].main;
-      const again = () => UI.transition('shutter', () => this.startRace(L.n), 'РІВЕНЬ ' + L.n);
-      const garage = () => UI.transition('shutter', () => this.toGarage({ earned: this.earned }), 'ГАРАЖ');
-      const next = () => UI.transition('shutter', () => this.startRace(L.n + 1), 'РІВЕНЬ ' + (L.n + 1));
+      const label = free ? FR.name + ' ' + L.freeLevel : L.bonusRun ? 'БОНУСНИЙ ЗАЇЗД' : 'РІВЕНЬ ' + L.n;
+      const again = () => UI.transition('shutter', () => this.replay(), label);
+      const garage = () => UI.transition('shutter', () => this.toGarage({ earned: this.earned, screen: free ? 'freeride' : 'hub' }), free ? 'ВІЛЬНИЙ ЗАЇЗД' : 'ГАРАЖ');
+      const next = free
+        ? () => UI.transition('shutter', () => this.startFree(free), FR.name + ' ' + (L.freeLevel + 1))
+        : () => UI.transition('shutter', () => this.startRace(L.n + 1), 'РІВЕНЬ ' + (L.n + 1));
       const earned = 'ЗАРОБЛЕНО: ' + UI.money(this.earned) + (this.win && L.winBonus ? ' (+' + L.winBonus + ' ЗА ПЕРЕМОГУ)' : '');
       let sub = '';
-      if (this.win) { const nx = Levels.config(L.n + 1); sub = (this.unlocked ? 'ВІДКРИТО ' : 'ДАЛІ ') + 'РІВЕНЬ ' + nx.n + ': ' + nx.name; }
+      if (L.bonusRun) sub = busted ? 'ПОЛІЦІЯ ВЗЯЛА ТЕБЕ НА ' + this.distance + ' М' : 'ТРАСА ПРОЙДЕНА: ' + this.distance + ' М';
+      else if (free && this.win) sub = 'ДАЛІ: ' + FR.name + ' ' + (L.freeLevel + 1);
+      else if (this.win) { const nx = Levels.config(L.n + 1); sub = (this.unlocked ? 'ВІДКРИТО ' : 'ДАЛІ ') + 'РІВЕНЬ ' + nx.n + ': ' + nx.name; }
       else if (this.cars.length > 1) { const top = this.results[0].c; sub = top.state === 'busted' ? 'ПЕРЕМОЖЦІВ НЕМАЄ' : 'ПЕРЕМОЖЕЦЬ: ' + top.g.name; }
       Font.draw(ctx, title, CX, P ? 16 : 18, this.win ? '#ffc31f' : '#ff3ea5', P ? 2 : 3, 'center', '#12082a');
       Font.draw(ctx, sub, CX, P ? 38 : 46, this.win ? '#b6ff6a' : '#d8ccff', 1, 'center');
+      if (L.bonusRun) {
+        const cy = P ? 96 : 84;
+        Font.draw(ctx, 'ЗІБРАНО', CX, cy, '#8a7aa8', 1, 'center');
+        Font.draw(ctx, UI.money(this.earned), CX, cy + 14, '#9bf08a', P ? 3 : 4, 'center', '#12082a');
+        Font.draw(ctx, 'РЕКОРД ' + UI.money(Profile.bonusBest), CX, cy + 50, this.record ? '#ffc31f' : '#b9a8e0', 1, 'center');
+        if (this.record) Font.draw(ctx, 'НОВИЙ РЕКОРД!', CX, cy + 64, Math.floor(this.time * 4) % 2 ? '#ffc31f' : '#ffffff', 1, 'center');
+        if (this.player.deaths) Font.draw(ctx, 'ПАДІНЬ: ' + this.player.deaths, CX, cy + 78, '#ff5c7a', 1, 'center');
+        const bw = P ? Math.min(200, DW - 24) : 150, bx = Math.round(CX - bw / 2);
+        if (P) {
+          this.button(bx, DH - 70, bw, 26, 'ЩЕ РАЗ', main, again, 2);
+          this.button(bx, DH - 38, bw, 26, 'В ГАРАЖ', '#9d8cff', garage, 2);
+        } else {
+          this.button(CX - 160, 200, bw, 22, 'ЩЕ РАЗ', main, again);
+          this.button(CX + 10, 200, bw, 22, 'В ГАРАЖ', '#9d8cff', garage);
+        }
+        ctx.restore();
+        return;
+      }
       if (P) {
         // one card per racer: name and total on the first line, the breakdown under it
         const rw = DW - 12, rh = 46;
@@ -1261,10 +1344,10 @@
         Music.clipText(ctx, earned, 8, 54 + this.results.length * 52 + 10, DW - 16, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, false, this.time);
         const bw = Math.min(200, DW - 24), bx = Math.round(CX - bw / 2);
         if (this.win) {
-          this.button(bx, DH - 102, bw, 26, 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, next, 2);
+          this.button(bx, DH - 102, bw, 26, free ? 'ДАЛІ: ' + (L.freeLevel + 1) : 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, next, 2);
           this.button(bx, DH - 70, bw, 26, 'ПЕРЕГРАТИ', '#29e0d0', again, 2);
         } else this.button(bx, DH - 70, bw, 26, 'ЩЕ РАЗ', main, again, 2);
-        this.button(bx, DH - 38, bw, 26, 'В ГАРАЖ', '#9d8cff', garage, 2);
+        this.button(bx, DH - 38, bw, 26, free ? 'ДО ЗАЇЗДІВ' : 'В ГАРАЖ', '#9d8cff', garage, 2);
         ctx.restore();
         return;
       }
@@ -1287,12 +1370,12 @@
       });
       Font.draw(ctx, earned, 240, 178, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
       if (this.win) {
-        this.button(36, 192, 150, 22, 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, next);
+        this.button(36, 192, 150, 22, free ? 'ДАЛІ: ' + FR.name + ' ' + (L.freeLevel + 1) : 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, next);
         this.button(194, 192, 114, 22, 'ПЕРЕГРАТИ', '#29e0d0', again);
-        this.button(316, 192, 128, 22, 'В ГАРАЖ', '#9d8cff', garage);
+        this.button(316, 192, 128, 22, free ? 'ДО ЗАЇЗДІВ' : 'В ГАРАЖ', '#9d8cff', garage);
       } else {
         this.button(130, 192, 100, 22, 'ЩЕ РАЗ', main, again);
-        this.button(250, 192, 100, 22, 'В ГАРАЖ', '#9d8cff', garage);
+        this.button(250, 192, 100, 22, free ? 'ДО ЗАЇЗДІВ' : 'В ГАРАЖ', '#9d8cff', garage);
       }
       ctx.restore();
     },

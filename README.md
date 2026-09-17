@@ -17,6 +17,8 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 - A piece you lay yourself ignores traffic: drop it where a car stands and the car rides up
   onto it. Nothing around your own bumper is a dead zone any more
 - Slots deal the next piece the instant one is spent - no cooldown to wait out mid-race
+- Replaying a level hands back the same track, seed and all, not a fresh roll of the same
+  number - you lose the run, not the road you had learned
 - No turning a piece: the game runs too fast to spend a beat on it. Every turn of a shape is
   its own piece and the tray deals it like any other - all but the turns that meet the car with
   the high end of the slope, which are a wall at race speed and are never dealt to anyone
@@ -24,6 +26,13 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 - Neon levels (4, 9, 14, ...): no blocks - you paint the road with your finger from a limited can of paint
 - Tunnel levels (8, 23, 38, ...): three parallel tunnels, one per racer, blocked by walls missing one or
   two pieces - drop them in and the filled column clears, Tetris style
+- Bonus run (every 6th level): one car against five or six patrols and two helicopters, no
+  finish line and no rivals - the road runs on forever and the only job is the money. One
+  touch from a cop ends it and you keep every dollar. Alternates between blocks and the
+  brush; on the levels where it lands on a neon one (24, 54, ...) it takes the brush
+- Free ride: pick one mechanic - blocks, neon or tunnels - and play only that. Each keeps its
+  own level counter and none of it moves the campaign or the Blacklist. A mechanic opens here
+  once the campaign has reached it
 - Vanilla JavaScript + HTML5 Canvas, no build step, no dependencies
 - Pixel-perfect integer scaling, 480x270 landscape / 240x400-and-up portrait
 - Ukrainian interface

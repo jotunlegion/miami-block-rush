@@ -4,6 +4,8 @@
   const MENU = [
     { id: 'race', name: 'ГОНКА', icon: 'flag', get hint() { const L = Levels.config(Profile.data ? Profile.data.level : 1); return 'РІВЕНЬ ' + L.n + ': ' + L.name; } },
     { id: 'career', name: 'КАР\'ЄРА', icon: 'crown', get hint() { return careerHint(); } },
+    { id: 'freeride', name: 'ЗАЇЗД', icon: 'tire', get hint() { return freeHint(); } },
+    { id: 'mp', name: 'МЕРЕЖА', icon: 'shield', hint: 'МУЛЬТИПЛЕЄР - СКОРО БУДЕ', locked: true },
     { id: 'lot', name: 'АВТОСАЛОН', icon: 'key', hint: '20 ЛЕГЕНД 80-Х - 2000-Х' },
     { id: 'perf', name: 'ТЮНІНГ', icon: 'engine', hint: 'ДВИГУН, ТУРБО, ШИНИ, ПІДВІСКА' },
     { id: 'visual', name: 'ВІЗУАЛ', icon: 'spray', hint: 'ОБВІС, ФАРБА, ВІНІЛИ, НЕОН' },
@@ -71,6 +73,19 @@
   const stageY = () => floorLine() - 26;
 
   const CL_ROWS = 8, CL_H = 28;
+  // free ride: one card per mechanic, each with its own counter, none of it touching the
+  // campaign level or the Blacklist - it is practice, and practice must not be progress
+  const FREE_IDS = ['blocks', 'neon', 'tunnel'];
+  const FREE_DESC = {
+    blocks: 'БУДУЙ ДОРОГУ З БЛОКІВ',
+    neon: 'МАЛЮЙ ДОРОГУ ПАЛЬЦЕМ',
+    tunnel: 'ЗАКРИЙ ОТВІР У СТІНІ',
+  };
+  function freeHint() {
+    const open = FREE_IDS.filter((m) => Profile.freeOpen(m));
+    if (!open.length) return 'ВІДКРИЙ МЕХАНІКИ В ГОНКАХ';
+    return 'ВІЛЬНИЙ ЗАЇЗД: ' + open.map((m) => Levels.FREE[m].name + ' ' + Profile.freeLevel(m)).join(', ');
+  }
   // portrait stacks the rival card over the list instead of beside it, so the list takes
   // whatever is left under the card; the same for the jukebox above its now-playing deck
   const careerRows = () => (PT() ? Math.max(3, Math.floor((VH() - 252) / CL_H)) : CL_ROWS);
@@ -148,6 +163,7 @@
     if (screen === 'visual') { UI.tween(S.cam, port ? { cx: mx, cy: sy } : { cx: 168, cy: 116 }, 0.6, 'inOutCubic'); pickVisualCat(0); }
     if (screen === 'perf') { UI.tween(S.cam, port ? { cx: mx, cy: sy } : { cx: 232, cy: 124 }, 0.6, 'inOutCubic'); pickPerfCat(0); }
     if (screen === 'lot') { S.cam.cx = mx; S.cam.cy = port ? sy : 112; setEra(S.era, true); flyTo('full', { zoom: 5 }); }
+    if (screen === 'freeride') S.item = Math.max(0, FREE_IDS.findIndex((m) => Profile.freeOpen(m)));
     if (screen === 'career') {
       const list = careerList(), nr = nextRival();
       S.item = nr ? list.indexOf(nr) : 0;
@@ -179,8 +195,10 @@
 
   function activateMenu(i) {
     const m = MENU[i];
+    if (m.id === 'mp') { Audio8.sfx.invalid(); toast('СКОРО БУДЕ', '#29e0d0'); return; }
     if (!Profile.data.current && m.id !== 'lot' && m.id !== 'jukebox' && m.id !== 'career') { Audio8.sfx.invalid(); toast('СПЕРШУ КУПИ АВТО', '#ff5c7a'); return; }
     Audio8.sfx.click();
+    if (m.id === 'mp') { Audio8.sfx.invalid(); toast('СКОРО БУДЕ', '#29e0d0'); return; }
     if (m.id === 'race') UI.transition('shutter', () => S.onRace && S.onRace(), 'ГОНКА!');
     else if (m.id === 'career') go('career');
     else go(m.id);
@@ -897,6 +915,54 @@
     particlesAndFx();
   }
 
+  // ---------- free ride ----------
+  function drawFreeRide() {
+    drawBg(true);
+    ctx.globalAlpha = 0.55; ctx.fillStyle = '#05030c'; ctx.fillRect(0, 0, E.vw, E.vh); ctx.globalAlpha = 1;
+    ctx.save(); ctx.translate(E.ox, E.oy);
+    topBar('ВІЛЬНИЙ ЗАЇЗД', 'tire');
+    const port = PT(), k = UI.Ease.outCubic(S.enter.k), t = S.t;
+    Font.draw(ctx, port ? 'РІВНІ ОКРЕМІ ВІД КАР\'ЄРИ' : 'МЕХАНІКА НА ВИБІР - РІВНІ ОКРЕМІ ВІД КАР\'ЄРИ', MX(), 34, '#8a7aa8', 1, 'center');
+    // portrait spreads the three cards over the band between the header and the go button
+    const top = 48, band = port ? VH() - top - 56 : 0;
+    const h = port ? Math.min(150, Math.floor((band - 16) / 3)) : 160;
+    const y0 = port ? top + Math.round((band - (h * 3 + 16)) / 2) : top;
+    const w = port ? VW() - 8 : 150;
+    FREE_IDS.forEach((m, i) => {
+      const F = Levels.FREE[m], open = Profile.freeOpen(m), lvl = Profile.freeLevel(m);
+      const sel = S.item === i;
+      const x = port ? 4 : Math.round(13 + i * 154 + 300 * (1 - k));
+      const y = port ? Math.round(y0 + i * (h + 8) + 300 * (1 - k)) : top;
+      const col = open ? (sel ? accent() : '#3d2f7a') : '#3d2f7a';
+      slant(x, y, w, h, sel && open ? '#2a1450f4' : '#12082aee', col, 8);
+      const icx = port ? x + 14 : x + w / 2 - 18;
+      const icy = port ? y + Math.round(h / 2) - 18 : y + 26;
+      UI.icon(ctx, open ? F.icon : 'lock', icx, icy, open ? accentHi() : '#6a5a88', 3);
+      const tx = port ? x + 60 : x + w / 2;
+      const align = port ? 'left' : 'center';
+      const ty = port ? y + Math.round(h / 2) - 22 : y + 70;
+      Font.draw(ctx, F.name, tx, ty, open ? '#ffffff' : '#6a5a88', 2, align, '#12082a');
+      Font.draw(ctx, open ? 'РІВЕНЬ ' + lvl : 'ВІДКРИЄТЬСЯ НА РІВНІ ' + F.gate, tx, ty + 20, open ? accentHi() : '#8a7aa8', 1, align, null);
+      Music.clipText(ctx, FREE_DESC[m], port ? tx : x + 10, ty + 32, port ? w - 70 : w - 20, '#b9a8e0', 1, false, t);
+      if (open && sel) { ctx.fillStyle = accentHi(); ctx.fillRect(x + 12, y + h - 4, Math.round((w - 24) * (0.5 + 0.5 * Math.sin(t * 4))), 1); }
+      E.button(x, y, w, h, () => {
+        if (!open) { Audio8.sfx.invalid(); toast('СПЕРШУ ПРОЙДИ РІВЕНЬ ' + F.gate, '#ff5c7a'); return; }
+        if (S.item !== i) { S.item = i; Audio8.sfx.select(); return; }
+        Audio8.sfx.click();
+        UI.transition('shutter', () => S.onFree && S.onFree(m), F.name + ' ' + lvl);
+      });
+    });
+    const open = Profile.freeOpen(FREE_IDS[S.item]);
+    const F = Levels.FREE[FREE_IDS[S.item]];
+    const by = port ? VH() - 34 : 244;
+    actionButton(Math.round(MX() - (port ? (VW() - 60) / 2 : 75)), by - 10, port ? VW() - 60 : 150,
+      open ? 'ПОЇХАЛИ!' : 'ЗАКРИТО', open ? '#ffc31f' : '#6a5a88',
+      () => UI.transition('shutter', () => S.onFree && S.onFree(FREE_IDS[S.item]), F.name + ' ' + Profile.freeLevel(FREE_IDS[S.item])), open);
+    toastDraw();
+    ctx.restore();
+    particlesAndFx();
+  }
+
   // ---------- jukebox (EA Trax style) ----------
   const fmtTime = (s) => (isFinite(s) && s > 0 ? Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') : '0:00');
   const CTX_LABEL = { menu: 'МЕНЮ', race: 'ГОНКИ', both: 'ВСЮДИ', off: 'ВИМК' };
@@ -986,6 +1052,7 @@
     else if (S.screen === 'visual') drawVisual();
     else if (S.screen === 'perf') drawPerf();
     else if (S.screen === 'jukebox') drawJukebox();
+    else if (S.screen === 'freeride') drawFreeRide();
     else if (S.screen === 'career') drawCareer();
     else drawLot();
   }
@@ -999,7 +1066,7 @@
   }
 
   function pointerDown(q) {
-    if (S.screen === 'jukebox' || S.screen === 'career') return;
+    if (S.screen === 'jukebox' || S.screen === 'career' || S.screen === 'freeride') return;
     const b = stageBox();
     if (q.y > b.y0 && q.y < b.y1 && q.x >= b.x0 && q.x < b.x1)
       S.orbit = { x: q.x, y: q.y, yaw: S.cam.yaw, pitch: S.cam.pitch, moved: false };
@@ -1025,6 +1092,12 @@
     const len = S.screen === 'hub' ? MENU.length : S.screen === 'visual' ? VISUAL.length : U.length;
     const change = S.screen === 'visual' ? pickVisualCat : S.screen === 'perf' ? pickPerfCat : null;
     if (code === 'Escape' || code === 'Backspace') { if (S.screen !== 'hub') go('hub'); return; }
+    if (S.screen === 'freeride') {
+      if (code === 'ArrowDown' || code === 'ArrowUp') { S.item = (S.item + (code === 'ArrowDown' ? 1 : 2)) % 3; Audio8.sfx.select(); }
+      const m = FREE_IDS[S.item];
+      if ((code === 'Enter' || code === 'Space') && Profile.freeOpen(m)) UI.transition('shutter', () => S.onFree && S.onFree(m), Levels.FREE[m].name);
+      return;
+    }
     if (S.screen === 'career') {
       const n = careerList().length;
       if (code === 'ArrowDown' || code === 'ArrowUp') {
@@ -1070,5 +1143,5 @@
   // screen is laid out again from scratch rather than left half in one and half in the other
   const relayout = () => { if (S.screen) setup(S.screen); };
 
-  window.Garage = { enter, update, draw, pointerDown, pointerMove, pointerUp, key, relayout, get screen() { return S.screen; }, set onRace(fn) { S.onRace = fn; }, set onCareer(fn) { S.onCareer = fn; } };
+  window.Garage = { enter, update, draw, pointerDown, pointerMove, pointerUp, key, relayout, get screen() { return S.screen; }, set onRace(fn) { S.onRace = fn; }, set onCareer(fn) { S.onCareer = fn; }, set onFree(fn) { S.onFree = fn; } };
 })();

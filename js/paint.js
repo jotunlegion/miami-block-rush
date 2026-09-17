@@ -76,7 +76,7 @@
       const hit = (b) => x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h;
       for (const c of game.cars) if ((c.active || c.state === 'finished') && hit(c.bbox())) return true;
       for (const q of game.police) if (q.car.active && hit(q.car.bbox())) return true;
-      if (game.heli && hit(game.heli.rect())) return true;
+      for (const h of game.helis) if (hit(h.rect())) return true;
       return false;
     },
 

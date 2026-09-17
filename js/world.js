@@ -60,7 +60,8 @@
       flash: new Float32Array(cols * ROWS),
       bags: [], nitros: [], platforms: [], islands: [],
       startCol: 2,
-      finishX: (cols - 24) * CELL,
+      // an endless run is never finished, only ended: the gate is parked out of reach
+      finishX: cfg.endless ? cols * CELL * 8 : (cols - 24) * CELL,
       trail: new Float32Array(Math.ceil((cols * CELL) / 4)).fill(NaN),
       rand: r,
     };
@@ -76,7 +77,7 @@
     // start rooftop
     for (let c = 0; c < 22; c++) for (let row = 9; row < ROWS; row++) set(c, row, 1);
     // finish rooftop
-    for (let c = cols - 30; c < cols; c++) for (let row = 9; row < ROWS; row++) set(c, row, 1);
+    if (!cfg.endless) for (let c = cols - 30; c < cols; c++) for (let row = 9; row < ROWS; row++) set(c, row, 1);
 
     if (cfg.tutorial) {
       // one long rooftop split by a small chasm the player has to bridge
@@ -88,41 +89,100 @@
 
     if (cfg.draw) { layoutNeon(w, cfg, r, set, bag); return w; }
 
+    fillBlocks(w, cfg, r, set, bag, 30, cfg.endless ? cols : cols - 40);
+    return w;
+  }
+
+  // One pass of block-level content over a column range. create() runs it over the whole
+  // field; the endless bonus run runs it again over every fresh chunk it slides in, which is
+  // why the cursors live on the world rather than in a local.
+  function fillBlocks(w, cfg, r, set, bag, c0, c1) {
+    const cols = w.cols;
     // safety islands: long flat decks with ramps at both ends
     const [count, len] = cfg.islands || [0, 0];
-    if (count) {
-      const a0 = 30, a1 = cols - 40, span = (a1 - a0) / count;
+    if (count && c1 > c0) {
+      const span = (c1 - c0) / count;
       for (let i = 0; i < count; i++) {
-        const c0 = Math.round(a0 + i * span + r() * Math.max(0, span - len - 4));
+        const ic = Math.round(c0 + i * span + r() * Math.max(0, span - len - 4));
+        if (ic + len >= cols) break;
         const row = 8 + Math.floor(r() * 3);
-        set(c0, row, 4); set(c0 + 1, row, 5);
-        for (let c = c0 + 2; c < c0 + len - 2; c++) set(c, row, 1);
-        set(c0 + len - 2, row, 6); set(c0 + len - 1, row, 7);
-        w.islands.push({ c0, c1: c0 + len, row });
+        set(ic, row, 4); set(ic + 1, row, 5);
+        for (let c = ic + 2; c < ic + len - 2; c++) set(c, row, 1);
+        set(ic + len - 2, row, 6); set(ic + len - 1, row, 7);
+        w.islands.push({ c0: ic, c1: ic + len, row });
       }
     }
+    const end = cfg.endless ? c1 : cols - 50;
     // small floating neon traps, denser on later levels
-    let c = 40;
-    while (c < cols - 50) {
+    let c = Math.max(c0 + 10, w.trapC || 40);
+    while (c < end) {
       const tl = 2 + Math.floor(r() * 3), row = 6 + Math.floor(r() * 5);
       if (!w.islands.some((s) => c + tl > s.c0 - 8 && c < s.c1 + 8)) for (let i = 0; i < tl; i++) set(c + i, row, 1);
       c += (cfg.trapGap || 34) + Math.floor(r() * 30);
     }
-    // money bags
-    c = 17;
-    while (c < cols - 32) {
-      const row = Math.max(2, Math.min(10, Math.round(3 + r() * 4 + r() * 4)));
-      if (!w.type[row * cols + c]) bag(c, row, row <= 4 ? 250 : 100);
-      c += 4 + Math.floor(r() * 6);
+    w.trapC = c;
+    // money bags - a bonus run carpets the roofs with small ones, that is the whole game there
+    const loot = !!cfg.loot;
+    c = Math.max(c0 - 13, w.bagC || 17);
+    const bagEnd = cfg.endless ? c1 : cols - 32;
+    while (c < bagEnd) {
+      const row = loot ? Math.max(2, Math.min(11, Math.round(3 + r() * 6))) : Math.max(2, Math.min(10, Math.round(3 + r() * 4 + r() * 4)));
+      if (!w.type[row * cols + c]) bag(c, row, loot ? (r() < 0.08 ? 50 : 10) : row <= 4 ? 250 : 100);
+      c += loot ? 2 + Math.floor(r() * 3) : 4 + Math.floor(r() * 6);
     }
+    w.bagC = c;
     // nitro canisters
-    c = 26;
-    while (cfg.nitro !== false && c < cols - 36) {
+    c = Math.max(c0 - 4, w.nitroC || 26);
+    const nEnd = cfg.endless ? c1 : cols - 36;
+    while (cfg.nitro !== false && c < nEnd) {
       const row = 3 + Math.floor(r() * 8), x = c * CELL + 8, y = row * CELL + 8;
       if (!w.type[row * cols + c] && !w.bags.some((b) => Math.abs(b.x - x) < 24 && Math.abs(b.y - y) < 24)) w.nitros.push({ x, y, taken: false, t: r() * 6 });
       c += 9 + Math.floor(r() * 9);
     }
-    return w;
+    w.nitroC = c;
+  }
+
+  // ---- endless bonus run ----
+  // The world slides back a chunk at a time: the grid is memmoved left, everything that lives
+  // in world coordinates slides with it, and a fresh chunk is generated at the far end. The
+  // player ends up exactly where they were on screen - only the numbers got smaller - so an
+  // eight minute track and an endless one cost the same memory.
+  function recycle(w, cfg, shift) {
+    const cols = w.cols, px = shift * CELL;
+    for (const arr of [w.type, w.owner, w.flash])
+      for (let row = 0; row < ROWS; row++) {
+        const b = row * cols;
+        arr.copyWithin(b, b + shift, b + cols);
+        arr.fill(0, b + cols - shift, b + cols);
+      }
+    const ts = Math.round(px / 4);   // the trail is one sample every four pixels
+    w.trail.copyWithin(0, ts); w.trail.fill(NaN, w.trail.length - ts);
+    const slide = (o) => { o.x -= px; return o.x > -96; };
+    w.bags = w.bags.filter(slide);
+    w.nitros = w.nitros.filter(slide);
+    w.platforms = w.platforms.filter(slide);
+    w.islands = w.islands.filter((s) => { s.c0 -= shift; s.c1 -= shift; return s.c1 > 0; });
+    w.trapC = Math.max(0, (w.trapC || 0) - shift);
+    w.bagC = Math.max(0, (w.bagC || 0) - shift);
+    w.nitroC = Math.max(0, (w.nitroC || 0) - shift);
+    if (w.ink) {
+      w.ink.segs = w.ink.segs.filter((s) => { s.x0 -= px; return s.x0 > -240; });
+      w.ink.cols = new Array(cols);
+      for (const s of w.ink.segs) {
+        const a = Math.max(0, ((Math.min(s.x0, s.x0 + s.dx) - INK_R) / CELL) | 0);
+        const b = Math.min(cols - 1, ((Math.max(s.x0, s.x0 + s.dx) + INK_R) / CELL) | 0);
+        for (let c = a; c <= b; c++) (w.ink.cols[c] || (w.ink.cols[c] = [])).push(s);
+      }
+    }
+    const r = w.rand;
+    const set = (c, row, t, o = OWNER_STATIC) => {
+      if (c < 0 || c >= cols || row < 0 || row >= ROWS) return;
+      w.type[row * cols + c] = t; w.owner[row * cols + c] = o;
+    };
+    const bag = (c, row, value) => w.bags.push({ x: c * CELL + 8, y: row * CELL + 8, value: Math.round((value * (cfg.cash || 1)) / 10) * 10, big: value > 100, taken: false, t: r() * 6 });
+    if (cfg.draw) neonRange(w, cfg, r, set, bag, cols - shift, cols);
+    else fillBlocks(w, cfg, r, set, bag, cols - shift, cols);
+    return px;
   }
 
   // ---- painted ink (neon mode): polylines that are solid like blocks ----
@@ -267,16 +327,23 @@
   // for player mistakes, and it is always full again on a safety island.
   function layoutNeon(w, cfg, r, set, bag) {
     initInk(w);
-    const P = cfg.paint, cols = w.cols, end = cols - 30;
+    neonRange(w, cfg, r, set, bag, 22, cfg.endless ? w.cols : w.cols - 30);
+    return w;
+  }
+
+  // The painted road laid out over a column range, carrying the row and the tank across the
+  // seam so an endless run picks up exactly where the last chunk left the player.
+  function neonRange(w, cfg, r, set, bag, from, end) {
+    const P = cfg.paint, cols = w.cols;
     const [icount, ilen] = cfg.islands || [0, 0];
     const iAt = [];
     if (icount) {
-      const a0 = 46, a1 = end - ilen - 12, span = (a1 - a0) / icount;
+      const a0 = from + 24, a1 = end - ilen - 12, span = (a1 - a0) / icount;
       for (let i = 0; i < icount; i++) iAt.push(Math.round(a0 + i * span + r() * Math.max(0, span - ilen - 16)));
     }
     const can = (col, row) => w.nitros.push({ x: col * CELL + 8, y: (row - 1) * CELL + 6, taken: false, t: r() * 6 });
     const ledges = [];
-    let budget = P.max, row = 9, c = 22, ii = 0;
+    let budget = P.max, row = w.roadRow || 9, c = from, ii = 0;
     // cans go on the ledge BEFORE the gap, enough of them that the bridge plus the
     // reserve is always paid for - that is the "you always reach the island" guarantee
     const fill = (want, col, lr, len) => {
@@ -325,9 +392,11 @@
       row += d;
       c += gap;
     }
-    // run-in to the finish roof: never leave a gap there that no amount of paint covers
+    // run-in to the finish roof - or, in an endless run, to the seam with the next chunk:
+    // never leave a gap there that no amount of paint covers
     for (let k = c; k < end; k++) set(k, row, 1);
     if (ledges.length) ledges[ledges.length - 1].len += Math.max(0, end - c);
+    w.roadRow = row;
     // money on and above the road, the high bags need a painted ramp
     ledges.forEach((L, i) => {
       if (L.island && i % 2) return;
@@ -335,12 +404,16 @@
       const high = r() < 0.35 && L.row > 6;
       bag(col, Math.max(1, L.row - (high ? 4 : 1)), high ? 250 : 100);
     });
-    return w;
+    // a bonus run is played for the money, so the painted road carries small bags all along it
+    if (cfg.loot)
+      for (const L of ledges)
+        for (let k = 2; k < L.len - 2; k += 2 + Math.floor(r() * 2))
+          bag(L.c0 + k, L.row - 1, r() < 0.08 ? 50 : 10);
   }
 
   window.World = {
     CELL, ROWS, FIELD_H, SAFE_W, SAFE_H, OWNER_STATIC, PIECES, INK_R,
-    create, cellAt, isSolid, normalAt, canPlace, place, bagRects, randomPiece, rng, recordTrail, trailY,
+    create, recycle, cellAt, isSolid, normalAt, canPlace, place, bagRects, randomPiece, rng, recordTrail, trailY,
     initInk, inkAdd, inkSolid,
   };
 })();
