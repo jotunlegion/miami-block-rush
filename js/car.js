@@ -118,6 +118,19 @@
     }
     get active() { return this.state === 'drive' || this.state === 'hover' || this.state === 'ready'; }
 
+    // something solid right in front of the nose, at body height or just above it
+    blockedAhead() {
+      const dir = this.vx < -5 ? -1 : 1, x = this.x + dir * (this.bw / 2 + 5);
+      return isSolid(this.w, x, this.y) || isSolid(this.w, x, this.y - 5) || isSolid(this.w, x, this.y + 4);
+    }
+
+    // Wedged: gone nowhere, and either off its wheels or nose to a wall. This is the one
+    // case the short hop cannot solve, so it is the one case that gets the long one.
+    get wedged() {
+      if (Math.hypot(this.vx, this.vy) > 30) return false;
+      return !this.grounded || this.blockedAhead();
+    }
+
     toWorld(lx, ly) {
       const c = Math.cos(this.a), s = Math.sin(this.a);
       return [this.x + lx * c - ly * s, this.y + lx * s + ly * c];
@@ -376,10 +389,11 @@
       let ux = Math.sin(this.a), uy = -Math.cos(this.a);
       // tipped over on its nose or roof: hop straight up and a little forward instead of sideways
       if (uy > -0.6) { ux = 0.35; uy = -0.94; }
-      // On the road the hop stays short, the way it is meant to be. Wedged - no wheel on the
-      // ground, barely moving, body against a block - it has to clear the block that is
-      // holding the car, or the button reads as broken just when it matters most.
-      const v = this.grounded ? JUMP_V : JUMP_V * 1.8;
+      // On the road the hop stays short, the way it is meant to be. Wedged - stopped, and
+      // either off the wheels or nose to a wall - it has to clear the block that is holding
+      // the car, or the button reads as broken just when it matters most. The rival and
+      // police builders lean on the same hop to get over a wall they built into.
+      const v = this.wedged ? JUMP_V * 1.8 : JUMP_V;
       this.vy = Math.min(this.vy, 0) + uy * v;
       this.vx = Math.max(0, this.vx + ux * v);
       // the forward push lasts as long as the hop does, and the hop is a third of what it was

@@ -27,8 +27,10 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 - Tunnel levels (8, 23, 38, ...): three parallel tunnels, one per racer, blocked by walls missing one or
   two pieces - drop them in and the filled column clears, Tetris style
 - Bonus run (every 6th level): one car against five or six patrols and two helicopters, no
-  finish line and no rivals - the road runs on forever and the only job is the money. One
-  touch from a cop ends it and you keep every dollar. Alternates between blocks and the
+  finish line and no rivals - the road runs on forever and the only job is the money. It is
+  a pursuit, not a race: every patrol starts behind you and hunts from behind, pushing
+  harder the longer you last, and the helicopters hold station overhead. One touch from a
+  cop ends it and you keep every dollar, crashes and all. Alternates between blocks and the
   brush; on the levels where it lands on a neon one (24, 54, ...) it takes the brush
 - Free ride: pick one mechanic - blocks, neon or tunnels - and play only that. Each keeps its
   own level counter and none of it moves the campaign or the Blacklist. A mechanic opens here

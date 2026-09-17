@@ -393,6 +393,8 @@
     onDeath(car) {
       if (!car.isPlayer || this.state !== 'race') return;
       const cut = Math.round((1 - Balance.deathMul(car.deaths)) * 100);
+      // a bonus run does not tax a crash, it only costs you the road you were on
+      if (this.level.bonusRun) { if (this.level.draw) Paint.onDeath(this, car); return 0; }
       Particles.text(car.x, car.y - 26, car.deaths <= 9 ? '-10% ГРОШЕЙ' : 'МІНІМУМ 10%', '#ff5c7a');
       this.penaltyFlash = 1.2;
       if (this.level.draw) Paint.onDeath(this, car);
@@ -1096,7 +1098,8 @@
         else {
           const txt = '$' + (c.money + c.bonus) + (c.place ? ' #' + c.place : '');
           Font.draw(ctx, txt, 14, y, c.isPlayer ? '#ffffff' : pal.hi);
-          if (c.deaths) Font.draw(ctx, '-' + Math.round((1 - Balance.deathMul(c.deaths)) * 100) + '%', 18 + Font.measure(txt, 1), y, c.isPlayer && this.penaltyFlash > 0 && Math.floor(t * 8) % 2 ? '#ffffff' : '#ff5c7a');
+          // a bonus run keeps the whole haul, so there is no percentage to warn about
+          if (c.deaths && !this.level.bonusRun) Font.draw(ctx, '-' + Math.round((1 - Balance.deathMul(c.deaths)) * 100) + '%', 18 + Font.measure(txt, 1), y, c.isPlayer && this.penaltyFlash > 0 && Math.floor(t * 8) % 2 ? '#ffffff' : '#ff5c7a');
         }
       });
       // progress track - an endless run has no finish to measure against, so it counts metres

@@ -110,7 +110,7 @@
         draw: neon, paint: neon ? paintCfg(Math.max(4, n)) : null, tunnel: null,
         name: 'БОНУСНИЙ ЗАЇЗД', tutorial: false,
         islands: neon ? [8, 14] : [7, 12],
-        police: Math.min(6, 4 + b), policeX: [150, 60, 900, 1900, 2900, 4100],
+        police: Math.min(6, 4 + b), policeX: [230, 190, 150, 110, 70, 30],
         platforms: true, heli: 2, nitro: true,
         trapGap: Math.max(40, 80 - n * 2),
         bonus: [0], winBonus: 0,

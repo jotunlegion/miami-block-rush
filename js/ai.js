@@ -83,7 +83,17 @@
       const c = this.car;
       const racers = game.cars.filter((r) => r.state !== 'busted' && r.state !== 'finished');
       if (game.state === 'race' && c.state === 'ready' && game.raceTime > 2 + this.idx * 0.7) c.state = 'drive';
-      if (racers.length && game.state === 'race') {
+      const bonus = game.level && game.level.bonusRun;
+      if (racers.length && game.state === 'race' && bonus) {
+        // A bonus run is a pursuit, not a race. Every patrol hunts the player from behind:
+        // it sprints when the gap opens, matches pace on the bumper, and drops back if it
+        // ever overshoots. Nothing parks up the road waiting - there is no road to wait on.
+        const p = game.player, gap = p.x - c.x, base = Math.max(60, p.g.top);
+        // and the longer the chase runs the harder they push, because it has to end sometime
+        const heat = Math.min(1.4, 0.72 + game.raceTime / 70) * (game.level.policeSpeed || 1);
+        const top = gap < 0 ? base * 0.3 : gap < 70 ? base * 0.9 : gap < 220 ? base * 1.06 : base * 1.3;
+        c.g.top = Math.max(top * heat, 1);
+      } else if (racers.length && game.state === 'race') {
         const rear = racers.reduce((m, r) => (r.x < m.x ? r : m), racers[0]);
         const avgTop = game.cars.reduce((s, r) => s + r.g.top, 0) / game.cars.length;
         const gap = rear.x - c.x;
@@ -108,11 +118,14 @@
     draw(ctx, camX, time) { this.car.draw(ctx, camX, time); }
   }
 
-  // police helicopter (level 20+): randomly speeds up and slows down, dips toward the road and knocks cars around
+  // Police helicopter: it holds station over the car it is hunting rather than driving its
+  // own race down the map. Mostly straight overhead, often hanging back a little, now and
+  // then cutting ahead to head the car off - and it dips at the road to knock cars around.
   class Helicopter {
     constructor(game, i = 0) {
-      this.x = game.player.x - 260 - i * 260; this.y = 30 + i * 26; this.vx = 0;
-      this.mood = 0; this.speedMul = 1; this.ty = 40; this.t = 0; this.chop = 0;
+      this.i = i;
+      this.x = game.player.x - 120 - i * 140; this.y = 30 + i * 26; this.vx = 0;
+      this.mood = 0; this.station = -20 - i * 60; this.ty = 40; this.t = 0; this.chop = 0;
       this.hitCd = new Map();
     }
 
@@ -130,15 +143,17 @@
       const racers = game.cars.filter((r) => r.active);
       const ref = p.active ? p : racers[0] || p;
       if ((this.mood -= dt) <= 0) {
-        this.mood = 1.2 + Math.random() * 2.2;
-        this.speedMul = 0.5 + Math.random() * 1.1;
+        this.mood = 1.6 + Math.random() * 2.6;
+        // where it wants to sit relative to the car: overhead, a little behind, or ahead
+        const roll = Math.random();
+        this.station = (roll < 0.45 ? -10 - Math.random() * 30 : roll < 0.82 ? -70 - Math.random() * 100 : 30 + Math.random() * 70) - this.i * 70;
         this.ty = Math.random() < 0.45 ? 96 + Math.random() * 40 : 24 + Math.random() * 44;
       }
-      let mul = this.speedMul;
-      const dx = this.x - ref.x;
-      if (dx < -240) mul = 1.9;
-      else if (dx > 260) mul = 0.35;
-      this.vx += (Math.max(70, Math.abs(ref.vx)) * mul - this.vx) * Math.min(1, dt * 1.6);
+      // fly the car's speed, plus a correction toward the station - so it keeps pace overhead
+      // instead of wandering off up the map and being dragged back by a hard limit
+      const err = ref.x + this.station - this.x;
+      const want = Math.max(50, Math.abs(ref.vx)) + Math.max(-110, Math.min(160, err * 1.7));
+      this.vx += (want - this.vx) * Math.min(1, dt * 1.8);
       if (this.x > w.finishX + 80) this.vx = Math.min(this.vx, 0);
       this.x += this.vx * dt;
       // never fly into the road: climb while the body would overlap blocks
