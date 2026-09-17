@@ -169,6 +169,107 @@
     ctx.drawImage(iconCache[k], Math.round(x), Math.round(y), 12 * scale, 12 * scale);
   }
 
+  // ---------- mouse pointer ----------
+  // The desktop build hides the system arrow and draws this one instead. The stock white
+  // pointer is a thin outline about thirty real pixels tall, and over a neon sunset with the
+  // road scrolling under it there is nothing to hold the eye - it simply goes missing. This
+  // one is drawn into the game's own low-res buffer, so it comes out in the same chunky
+  // pixels as everything else and grows with the window instead of staying the size the
+  // desktop chose. # is the dark rim, * is the fill.
+  const CURSOR = [
+    '#.........',
+    '##........',
+    '#*#.......',
+    '#**#......',
+    '#***#.....',
+    '#****#....',
+    '#*****#...',
+    '#******#..',
+    '#*******#.',
+    '#********#',
+    '#****#####',
+    '#***#.....',
+    '#**#......',
+    '#*#.......',
+    '##........',
+  ];
+  const CUR_PAD = 4;                  // room for the glow rings, and for the shadow below it
+  const curCache = {};
+
+  function buildCursor(color, hot, z) {
+    const w = CURSOR[0].length, h = CURSOR.length, pad = CUR_PAD * z;
+    const c = document.createElement('canvas');
+    c.width = w * z + pad * 2; c.height = h * z + pad * 2;
+    const g = c.getContext('2d');
+    const on = (cx, cy) => CURSOR[cy] && CURSOR[cy][cx] && CURSOR[cy][cx] !== '.';
+    const each = (fn) => { for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (on(x, y)) fn(x, y); };
+    // three rings of the gang colour go down first, so the arrow carries its own light and
+    // stays found on a dark road and on a pale sky alike
+    g.fillStyle = color;
+    for (let r = 3; r >= 1; r--) {
+      g.globalAlpha = [0.4, 0.24, 0.11][r - 1] * (hot ? 1.7 : 1);
+      each((x, y) => g.fillRect(pad + (x - r) * z, pad + (y - r) * z, (1 + r * 2) * z, (1 + r * 2) * z));
+    }
+    // and a hard shadow a pixel down and right, which is what gives it an edge over the
+    // brightest thing the game draws
+    g.globalAlpha = 0.5; g.fillStyle = '#05030c';
+    each((x, y) => g.fillRect(pad + (x + 1) * z, pad + (y + 2) * z, z, z));
+    g.globalAlpha = 1;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const ch = CURSOR[y][x];
+      if (ch === '.') continue;
+      g.fillStyle = ch === '#' ? '#12082a' : '#ffffff';
+      g.fillRect(pad + x * z, pad + y * z, z, z);
+    }
+    return c;
+  }
+
+  // Over something clickable the glow flares and a ring starts breathing round the tip, so a
+  // button answers the pointer before it is pressed. The arrow itself stays white on a dark
+  // rim either way: tinting it the gang colour lost it against a header in that same colour,
+  // which is exactly the sort of place a pointer must not vanish. `z` is how many buffer
+  // pixels one pixel of the drawing is worth: the game is blitted up by a whole number, and a
+  // small window would otherwise leave the pointer no larger than the system one it replaced.
+  function cursor(ctx, x, y, color, hot, t, z = 1) {
+    const k = color + z + (hot ? '!' : '');
+    if (!curCache[k]) curCache[k] = buildCursor(color, hot, z);
+    x = Math.round(x); y = Math.round(y);
+    if (hot) {
+      const r = (6 + Math.abs(Math.sin(t * 4)) * 2) * z;
+      ctx.globalAlpha = 0.55; ctx.fillStyle = color;
+      for (let a = 0; a < 14; a++) {
+        const an = (a / 14) * Math.PI * 2;
+        ctx.fillRect(x + Math.round(Math.cos(an) * r), y + Math.round(Math.sin(an) * r), z, z);
+      }
+      ctx.globalAlpha = 1;
+    }
+    ctx.drawImage(curCache[k], x - CUR_PAD * z, y - CUR_PAD * z);
+  }
+
+  // A piece in hand is already the pointer, drawn where the tap will lay it. All it is
+  // missing is the exact spot the aim is read from, which the piece itself covers.
+  function crosshair(ctx, x, y, color, z = 1) {
+    x = Math.round(x); y = Math.round(y);
+    const bar = (bx, by, bw, bh) => ctx.fillRect(x + bx * z, y + by * z, bw * z, bh * z);
+    ctx.fillStyle = '#12082a';
+    bar(-1, -6, 3, 4); bar(-1, 3, 3, 4); bar(-6, -1, 4, 3); bar(3, -1, 4, 3);
+    ctx.fillStyle = color;
+    bar(0, -5, 1, 3); bar(0, 3, 1, 3); bar(-5, 0, 3, 1); bar(3, 0, 3, 1);
+  }
+
+  // a press always leaves a mark: a ring that snaps outward and fades, so a click that
+  // landed on nothing still reads as a click that landed
+  function clickRing(ctx, x, y, k, color, z = 1) {
+    const r = (3 + k * 11) * z;
+    ctx.globalAlpha = (1 - k) * 0.8;
+    ctx.fillStyle = color;
+    for (let a = 0; a < 20; a++) {
+      const an = (a / 20) * Math.PI * 2;
+      ctx.fillRect(Math.round(x + Math.cos(an) * r), Math.round(y + Math.sin(an) * r), z, z);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // parallelogram plate (NFS-style slanted panel)
   function slant(ctx, x, y, w, h, fill, border, skew = 6) {
     x = Math.round(x); y = Math.round(y);
@@ -181,5 +282,5 @@
     ctx.fillStyle = '#ffffff14'; ctx.fillRect(x + skew + 1, y + 1, w - skew - 2, 1);
   }
 
-  window.UI = { Ease, tween, transition, update, drawTransition, panel, bar, money, icon, slant, get transitioning() { return tr.active; } };
+  window.UI = { Ease, tween, transition, update, drawTransition, panel, bar, money, icon, slant, cursor, crosshair, clickRing, get transitioning() { return tr.active; } };
 })();

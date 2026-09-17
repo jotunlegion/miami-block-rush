@@ -13,7 +13,18 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
   the field to drop it there. Both work everywhere, tunnel levels included
 - A dragged block hangs on the fingertip in screen space while its landing cells are outlined
   on the road, so the block never drifts back with the scrolling world. With a mouse, a piece
-  taken from the tray becomes the cursor
+  taken from the tray becomes the cursor, with a crosshair marking the spot the aim is read
+  from - the one thing the piece itself covers
+- On a desk the system arrow is hidden and the game draws its own: a chunky 1986 pointer with
+  three rings of neon in your gang's colour and a hard shadow under it. The stock white
+  pointer is a thin outline that goes missing over a sunset with the road scrolling beneath
+  it. This one is drawn into the game's own low-res buffer, so it comes out in the same pixels
+  as everything else, and it is doubled at small window sizes so it stays the same size on the
+  glass however the window is scaled. Over anything clickable the glow flares and a ring
+  breathes round the tip; a press leaves a ring that snaps outward, so a click that landed on
+  nothing still reads as a click that landed. The arrow itself stays white on a dark rim
+  either way - tinting it the gang colour lost it against a header in that same colour. Touch
+  the glass and the system pointer comes straight back
 - A piece you lay yourself ignores traffic: drop it where a car stands and the car rides up
   onto it. Nothing around your own bumper is a dead zone any more
 - Slots deal the next piece the instant one is spent - no cooldown to wait out mid-race

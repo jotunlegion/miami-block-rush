@@ -83,6 +83,7 @@
     armed: null,                      // tap control: the tray slot whose piece is in hand
     mouse: null,                      // last mouse position, design space - null on a touchscreen
     paint: 0, paintMax: 0, ink: null, dryT: 0,
+    mouse: null, clickFx: null,
 
     shake(n) { this.shakeAmt = Math.max(this.shakeAmt, n); },
 
@@ -516,6 +517,40 @@
 
     ghost() { const d = this.drag; return this.aim(this.tray[d.slot].piece, d.sx, d.sy, true); },
 
+    // A piece taken from the tray replaces the pointer with itself, so the two must never
+    // both be on screen: this is the one question both of them ask.
+    heldPointer() {
+      return !!(this.mouse && this.armed != null && !this.drag && this.tray[this.armed] && !this.level.draw
+        && (this.state === 'race' || this.state === 'countdown'));
+    },
+
+    // The desktop pointer, drawn last so it sits over everything including a wipe. The system
+    // arrow is hidden for as long as a mouse is the thing being used; a touchscreen has no
+    // pointer to replace, so it is handed back the moment a finger touches the glass.
+    drawCursor() {
+      const m = this.mouse;
+      const want = m ? 'none' : '';
+      if (screen.style.cursor !== want) screen.style.cursor = want;
+      if (!m) return;
+      const acc = Profile.data && Profile.data.gang != null ? Art.TEAM[Profile.data.gang].main : '#ff3ea5';
+      // The buffer is blitted up by a whole number, so at a small window one design pixel is
+      // only two on the glass and the pointer came out no bigger than the one it replaced.
+      // Doubling it there keeps it the same size on the glass whatever the window is.
+      const z = scale <= 2 ? 2 : 1;
+      ctx.save(); ctx.translate(ox, oy);
+      const fx = this.clickFx;
+      if (fx) UI.clickRing(ctx, fx.x, fx.y, Math.min(1, fx.t / 0.3), acc, z);
+      // with a piece in hand the piece is the pointer; all it lacks is the spot it aims at
+      if (this.heldPointer()) {
+        const piece = this.tray[this.armed].piece;
+        UI.crosshair(ctx, m.x, m.y, this.aim(piece, m.x, m.y, false).ok ? '#ffffff' : '#ff2a3a', z);
+      } else {
+        const hot = this.buttons.some((b) => m.x >= b.x && m.x < b.x + b.w && m.y >= b.y && m.y < b.y + b.h);
+        UI.cursor(ctx, m.x, m.y, acc, hot, this.time, z);
+      }
+      ctx.restore();
+    },
+
     // ---------------- update ----------------
     update(dt) {
       this.time += dt;
@@ -525,6 +560,7 @@
       if (this.penaltyFlash > 0) this.penaltyFlash -= dt;
       this.pressJ = Math.max(0, (this.pressJ || 0) - dt); this.pressN = Math.max(0, (this.pressN || 0) - dt);
       if (this.banner && (this.banner.t -= dt) <= 0) this.banner = null;
+      if (this.clickFx && (this.clickFx.t += dt) > 0.3) this.clickFx = null;
       if (this.state === 'countdown' || this.state === 'race') this.updateRace(dt);
       else if (this.state === 'garage') Garage.update(dt);
       if (window.Bot && (this.state === 'countdown' || this.state === 'race')) Bot.update(dt);
@@ -642,6 +678,7 @@
 
     pointerDown(e) {
       const q = this.toSafe(e);
+      if (e.pointerType !== 'touch') { this.mouse = q; this.clickFx = { x: q.x, y: q.y, t: 0 }; }
       if (UI.transitioning) return;
       if (this.state === 'garage') { Garage.pointerDown(q); return; }
       if ((this.state === 'race' || this.state === 'countdown') && this.player.state !== 'busted') {
@@ -805,6 +842,7 @@
       }
       UI.drawTransition(ctx, vw, vh, this.time);
       if (window.Debug) Debug.draw(ctx, { vw, vh, ox, oy, time: this.time, button: (x, y, w, h, l, c, fn) => this.button(x, y, w, h, l, c, fn) });
+      this.drawCursor();
       sctx.imageSmoothingEnabled = false;
       sctx.drawImage(buf, 0, 0, vw * scale, vh * scale);
     },
@@ -1010,11 +1048,7 @@
     // tap will lay down, drawn where the tap would put it, so the hand and the hint are the same
     // thing. A touchscreen has no pointer to replace, so it gets nothing.
     drawHeldCursor() {
-      const held = this.armed != null && !this.drag && this.tray[this.armed] && !this.level.draw;
-      const on = held && this.mouse && (this.state === 'race' || this.state === 'countdown');
-      const want = on ? 'none' : '';
-      if (screen.style.cursor !== want) screen.style.cursor = want;
-      if (!on) return;
+      if (!this.heldPointer()) return;
       const piece = this.tray[this.armed].piece, shape = PIECES[piece.p].v[piece.v];
       const sw = shape[0].length * CELL, sh = shape.length * CELL;
       const g = this.aim(piece, this.mouse.x, this.mouse.y, false);
