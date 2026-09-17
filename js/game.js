@@ -97,6 +97,14 @@
       Garage.onRace = () => this.startRace();
       Garage.onCareer = (r) => this.startCareer(r);
       Garage.onFree = (m) => this.startFree(m);
+      // A wipe drops you back on the title card, which is exactly where a first install
+      // starts: the tap there loads the save again, and the save is now blank.
+      Garage.onReset = () => {
+        this.state = 'title';
+        this.selected = Profile.data.gang || 0;
+        Particles.clear();
+        Audio8.startMusic('menu');
+      };
       Garage.enter((opts && opts.screen) || 'hub', opts);
     },
 
@@ -782,7 +790,9 @@
       }
       }
       if (window.Bot && (this.state === 'race' || this.state === 'countdown')) { ctx.save(); ctx.translate(ox, oy); Bot.draw(ctx); ctx.restore(); }
-      if (window.Music && Music.started() && !(this.state === 'garage' && (Garage.screen === 'jukebox' || Garage.screen === 'career'))) {
+      // the settings screen has its own sound panel, and the now-playing card landed right on
+      // top of the music slider - the one control it was covering
+      if (window.Music && Music.started() && !(this.state === 'garage' && (Garage.screen === 'jukebox' || Garage.screen === 'career' || Garage.screen === 'settings'))) {
         const acc = Profile.data && Profile.data.gang != null ? Art.TEAM[Profile.data.gang].main : '#ff3ea5';
         const inRace = this.state === 'race' || this.state === 'countdown' || this.state === 'results';
         const pw = Math.min(196, DW - 8);

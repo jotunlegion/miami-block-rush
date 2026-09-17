@@ -61,7 +61,10 @@
 
   const assign = (id) => st.assign[id] || TRACKS.find((t) => t.id === id).ctx;
   const playlist = (c) => TRACKS.filter((t) => { const a = assign(t.id); return a === c || a === 'both'; });
-  const target = () => (muted ? 0 : st.vol);
+  // st.vol is this track's place in the mix; the settings slider is a scale on top of it, read
+  // straight off Audio8 so there is one answer to "how loud is the music" and not two.
+  const scale = () => (window.Audio8 && Audio8.vol ? Audio8.vol('music') : 1);
+  const target = () => (muted ? 0 : st.vol * scale());
 
   function init() {
     if (audio) return;
@@ -153,6 +156,8 @@
       save();
     },
     setMuted(m) { muted = m; if (audio && cur) fade(target(), 0.2); },
+    // dragging a slider has to be heard on the same frame it moves, so this one skips the fade
+    refreshVol() { if (audio && cur) { clearInterval(fadeTimer); audio.volume = Math.max(0, Math.min(1, target())); } },
     progress: () => ({ t: audio ? audio.currentTime || 0 : 0, d: audio && isFinite(audio.duration) ? audio.duration : cur ? cur.dur : 0 }),
     update(dt) { if (popupT > 0) popupT -= dt; },
     showPopup() { if (cur) popupT = Math.max(popupT, 4); },

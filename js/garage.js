@@ -11,7 +11,11 @@
     { id: 'visual', name: 'ВІЗУАЛ', icon: 'spray', hint: 'ОБВІС, ФАРБА, ВІНІЛИ, НЕОН' },
     { id: 'mycars', name: 'МОЇ АВТО', icon: 'garage', hint: 'ПЕРЕСІСТИ НА ІНШУ ТАЧКУ' },
     { id: 'jukebox', name: 'ПЛЕЄР', icon: 'note', hint: 'РАДІО МАЯМІ: ТРЕКИ МЕНЮ І ГОНОК' },
+    { id: 'settings', name: 'НАЛАШТУВАННЯ', icon: 'gear', hint: 'ГУЧНІСТЬ, ТИША, СКИДАННЯ ПРОГРЕСУ' },
   ];
+  // The settings rows in the order the arrow keys walk them.
+  const SET_ROWS = ['music', 'sfx', 'mute', 'reset'];
+  const WIPES = ['ГРОШІ І КУПЛЕНІ АВТО', 'ТЮНІНГ І ВІЗУАЛ', 'РІВНІ ТА ВІЛЬНІ ЗАЇЗДИ', 'ЧОРНИЙ СПИСОК', 'РЕКОРД БОНУСНОГО ЗАЇЗДУ'];
   const VISUAL = [
     { id: 'spoiler', name: 'СПОЙЛЕР', icon: 'spoiler', cam: 'spoiler' },
     { id: 'bumper', name: 'БАМПЕР', icon: 'bumper', cam: 'bumper' },
@@ -39,6 +43,10 @@
     list: [], idx: 0, era: 'start', slide: { x: 0 }, sliding: false, confirm: false,
     enter: { k: 1 }, flash: { a: 0 }, bump: { v: 0 }, cash: { v: 0 }, dim: { a: 0 }, lights: { v: 0 },
     parts: [], toast: null,
+    // a wipe is armed first and done second, and the armed state ignores the first third of a
+    // second so a double tap can never carry both steps
+    wipe: { armed: 0, dead: 0 },
+    slide2: null,
   };
   let E = null, ctx = null;
 
@@ -164,6 +172,7 @@
     if (screen === 'perf') { UI.tween(S.cam, port ? { cx: mx, cy: sy } : { cx: 232, cy: 124 }, 0.6, 'inOutCubic'); pickPerfCat(0); }
     if (screen === 'lot') { S.cam.cx = mx; S.cam.cy = port ? sy : 112; setEra(S.era, true); flyTo('full', { zoom: 5 }); }
     if (screen === 'freeride') S.item = Math.max(0, FREE_IDS.findIndex((m) => Profile.freeOpen(m)));
+    if (screen === 'settings') { S.wipe.armed = 0; S.wipe.dead = 0; S.slide2 = null; }
     if (screen === 'career') {
       const list = careerList(), nr = nextRival();
       S.item = nr ? list.indexOf(nr) : 0;
@@ -196,7 +205,10 @@
   function activateMenu(i) {
     const m = MENU[i];
     if (m.id === 'mp') { Audio8.sfx.invalid(); toast('СКОРО БУДЕ', '#29e0d0'); return; }
-    if (!Profile.data.current && m.id !== 'lot' && m.id !== 'jukebox' && m.id !== 'career') { Audio8.sfx.invalid(); toast('СПЕРШУ КУПИ АВТО', '#ff5c7a'); return; }
+    // an empty garage still has a radio, a showroom, a Blacklist to read and a volume knob:
+    // the only things behind the "buy a car first" gate are the ones that need the car
+    const OPEN = ['lot', 'jukebox', 'career', 'settings'];
+    if (!Profile.data.current && OPEN.indexOf(m.id) < 0) { Audio8.sfx.invalid(); toast('СПЕРШУ КУПИ АВТО', '#ff5c7a'); return; }
     Audio8.sfx.click();
     if (m.id === 'mp') { Audio8.sfx.invalid(); toast('СКОРО БУДЕ', '#29e0d0'); return; }
     if (m.id === 'race') UI.transition('shutter', () => S.onRace && S.onRace(), 'ГОНКА!');
@@ -285,6 +297,7 @@
       if (p.life <= 0) S.parts.splice(i, 1);
     }
     if (S.toast && (S.toast.t -= dt) <= 0) S.toast = null;
+    if (S.wipe.armed > 0) { S.wipe.armed -= dt; S.wipe.dead = Math.max(0, S.wipe.dead - dt); }
   }
 
   // ---------- scene (pixel-art garage / showroom backdrops) ----------
@@ -963,6 +976,134 @@
     particlesAndFx();
   }
 
+  // ---------- settings ----------
+  // One layout, read by both the drawing and the finger. A slider drawn in one place and
+  // grabbed in another is a slider that fights you, so there is only ever one set of numbers.
+  function setLayout() {
+    const port = PT();
+    const w = port ? Math.min(VW() - 8, 300) : 380, x = Math.round(MX() - w / 2);
+    const sy = port ? 46 : 40, rowH = 26;
+    const soundH = 14 + rowH * 2 + 26;
+    const dy = sy + soundH + (port ? 14 : 12);
+    const dangerH = 20 + WIPES.length * 9 + 46;
+    const labW = port ? 68 : 82;
+    const trackX = x + 12 + labW, trackW = w - 12 - labW - 46;
+    const L = {
+      x, w, sy, soundH, dy, dangerH, rowH, trackX, trackW,
+      row: (i) => sy + 16 + i * rowH,
+      mute: { x: x + 10, y: sy + 16 + rowH * 2 + 2, w: w - 20, h: 20 },
+      reset: { x: x + 10, y: dy + dangerH - 26, w: w - 20, h: 20 },
+    };
+    L.grab = (i) => ({ x: trackX - 10, y: L.row(i) - 6, w: trackW + 20, h: 22 });
+    return L;
+  }
+
+  const VOL_STEP = 1 / 20;              // twenty notches: what you can see is what a drag can land on
+  const volAt = (L, px) => Math.round(Math.max(0, Math.min(1, (px - L.trackX) / L.trackW)) / VOL_STEP) * VOL_STEP;
+
+  function setVolume(id, v, click) {
+    const was = Audio8.vol(id);
+    Audio8.setVol(id, v);
+    // the step is what you hear: dragging the effects slider ticks at every notch so the
+    // level is audible while the finger is still down, and not only after it lifts
+    if (click && Math.abs(Audio8.vol(id) - was) > 0.001) {
+      if (id === 'sfx') Audio8.sfx.select();
+      if (Audio8.isMuted()) Audio8.setMuted(false);
+    }
+  }
+
+  function volSlider(i, id, label, L) {
+    const v = Audio8.vol(id), y = L.row(i), sel = SET_ROWS[S.item] === id, off = Audio8.isMuted();
+    const col = off ? '#6a5a88' : sel ? accentHi() : accent();
+    Font.draw(ctx, label, L.x + 12, y - 2, sel ? '#ffffff' : '#b9a8e0', 1);
+    const segs = 20, n = Math.round(v * segs), sw = Math.floor(L.trackW / segs);
+    // the notches grow to the right, so the level reads as a wedge before you read the number
+    for (let q = 0; q < segs; q++) {
+      const h = 3 + Math.round((q / (segs - 1)) * 6);
+      ctx.fillStyle = q < n ? col : '#2a1d4a';
+      ctx.fillRect(L.trackX + q * sw, y + 9 - h, sw - 1, h);
+    }
+    if (n > 0) { ctx.fillStyle = off ? '#8a7aa8' : '#ffffff'; ctx.fillRect(L.trackX + n * sw - 1, y - 3, 1, 13); }
+    Font.draw(ctx, Math.round(v * 100) + '%', L.x + L.w - 12, y - 2, off ? '#6a5a88' : '#ffffff', 1, 'right');
+    // the radio bars next to the music row: proof the slider is wired to something playing
+    if (id === 'music' && window.Music && Music.current() && !Music.isPaused() && !off)
+      Music.eq(ctx, L.trackX - 9, y - 2, col, S.t, 2, 9);
+    if (sel) { ctx.fillStyle = accentHi(); ctx.fillRect(L.x + 4, y - 3, 2, 13); }
+  }
+
+  function drawSettings() {
+    drawBg(true);
+    ctx.globalAlpha = 0.6; ctx.fillStyle = '#05030c'; ctx.fillRect(0, 0, E.vw, E.vh); ctx.globalAlpha = 1;
+    ctx.save(); ctx.translate(E.ox, E.oy);
+    topBar('НАЛАШТУВАННЯ', 'gear');
+    const L = setLayout(), k = UI.Ease.outCubic(S.enter.k), off = Audio8.isMuted();
+    // both panels fly in from opposite sides, so the screen assembles instead of appearing
+    const dx1 = Math.round(-(L.w + 30) * (1 - k)), dx2 = Math.round((L.w + 30) * (1 - k));
+
+    ctx.save(); ctx.translate(dx1, 0);
+    slant(L.x, L.sy, L.w, L.soundH, '#12082aee', accent(), 8);
+    Font.draw(ctx, 'ЗВУК', L.x + 12, L.sy + 4, '#8a7aa8', 1);
+    Font.draw(ctx, off ? 'ВИКЛЮЧЕНО' : 'УВІМКНЕНО', L.x + L.w - 12, L.sy + 4, off ? '#ff5c7a' : '#9bf08a', 1, 'right');
+    volSlider(0, 'music', 'МУЗИКА', L);
+    volSlider(1, 'sfx', 'ЕФЕКТИ', L);
+    const mSel = SET_ROWS[S.item] === 'mute', m = L.mute;
+    slant(m.x, m.y, m.w, m.h, off ? '#3a1024f0' : '#1f0c3ef0', mSel ? '#ffffff' : off ? '#ff5c7a' : '#3d2f7a', 5);
+    UI.icon(ctx, off ? 'lock' : 'note', m.x + 10, m.y + 4, off ? '#ff5c7a' : accentHi());
+    Font.draw(ctx, off ? 'УВІМКНУТИ ЗВУК' : 'ВИКЛЮЧИТИ ЗВУК', m.x + m.w / 2 + 8, m.y + 7, off ? '#ff8a9c' : '#ffffff', 1, 'center', null);
+    E.button(m.x, m.y, m.w, m.h, () => { S.item = 2; Audio8.toggleMute(); if (!Audio8.isMuted()) Audio8.sfx.click(); });
+    ctx.restore();
+
+    ctx.save(); ctx.translate(dx2, 0);
+    const armed = S.wipe.armed > 0;
+    slant(L.x, L.dy, L.w, L.dangerH, '#12082aee', armed ? '#ff2a3a' : '#6a3a5a', 8);
+    // hazard strip along the top of the panel: the one place in the garage that bites
+    for (let hx = 0; hx < L.w - 10; hx += 8) {
+      ctx.fillStyle = (hx / 8) % 2 ? '#12082a' : armed ? '#ff2a3a' : '#ffc31f';
+      ctx.fillRect(L.x + 7 + hx, L.dy + 2, Math.min(8, L.w - 10 - hx), 2);
+    }
+    Font.draw(ctx, 'СКИДАННЯ ПРОГРЕСУ', L.x + 12, L.dy + 8, armed ? '#ff5c7a' : '#ffc31f', 1);
+    WIPES.forEach((line, i) => {
+      ctx.fillStyle = armed ? '#ff5c7a' : '#6a5a88';
+      ctx.fillRect(L.x + 13, L.dy + 22 + i * 9 + 3, 2, 2);
+      Font.draw(ctx, line, L.x + 20, L.dy + 22 + i * 9, armed ? '#ffd0d8' : '#b9a8e0', 1);
+    });
+    Font.draw(ctx, 'ЗВУК І РАДІО ЗАЛИШАТЬСЯ', L.x + 12, L.dy + 22 + WIPES.length * 9 + 2, '#6a5a88', 1);
+    const r = L.reset, rSel = SET_ROWS[S.item] === 'reset';
+    const blink = Math.floor(S.t * 5) % 2 === 0;
+    slant(r.x, r.y, r.w, r.h, armed ? (blink ? '#ff2a3a' : '#7a0c20') : '#2a1450f4', rSel || armed ? '#ffffff' : '#ff5c7a', 5);
+    Font.draw(ctx, armed ? 'ТОРКНИСЬ ЩЕ РАЗ - СТЕРТИ' : 'СКИНУТИ ПРОГРЕС', r.x + r.w / 2 + 3, r.y + 7,
+      armed ? '#ffffff' : '#ff5c7a', 1, 'center', armed ? '#12082a' : null);
+    // the arming window runs out in front of you rather than silently
+    if (armed) { ctx.fillStyle = '#ffc31f'; ctx.fillRect(r.x + 4, r.y + r.h - 2, Math.round((r.w - 12) * (S.wipe.armed / 4)), 1); }
+    E.button(r.x, r.y, r.w, r.h, () => { S.item = 3; tapWipe(); });
+    ctx.restore();
+
+    toastDraw();
+    ctx.restore();
+    particlesAndFx();
+  }
+
+  // Two steps, one rule for finger and keyboard alike. The first third of a second after
+  // arming is dead, so a double tap can never carry both steps at once.
+  function tapWipe() {
+    if (S.wipe.armed > 0) {
+      if (S.wipe.dead > 0) return;
+      doWipe();
+      return;
+    }
+    S.wipe.armed = 4; S.wipe.dead = 0.35;
+    Audio8.sfx.invalid();
+    toast('ЦЕ НЕ ВІДКОТИТИ', '#ff5c7a');
+  }
+
+  function doWipe() {
+    S.wipe.armed = 0; S.wipe.dead = 0;
+    Profile.reset();
+    Audio8.sfx.dry();
+    S.flash.a = 1; UI.tween(S.flash, { a: 0 }, 0.8);
+    UI.transition('shutter', () => S.onReset && S.onReset(), 'НОВА ГРА');
+  }
+
   // ---------- jukebox (EA Trax style) ----------
   const fmtTime = (s) => (isFinite(s) && s > 0 ? Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') : '0:00');
   const CTX_LABEL = { menu: 'МЕНЮ', race: 'ГОНКИ', both: 'ВСЮДИ', off: 'ВИМК' };
@@ -1054,6 +1195,7 @@
     else if (S.screen === 'jukebox') drawJukebox();
     else if (S.screen === 'freeride') drawFreeRide();
     else if (S.screen === 'career') drawCareer();
+    else if (S.screen === 'settings') drawSettings();
     else drawLot();
   }
 
@@ -1066,12 +1208,26 @@
   }
 
   function pointerDown(q) {
+    if (S.screen === 'settings') {
+      // a slider is grabbed wherever it is touched, and keeps the finger until it lifts
+      const L = setLayout();
+      for (let i = 0; i < 2; i++) {
+        const g = L.grab(i);
+        if (q.x >= g.x && q.x < g.x + g.w && q.y >= g.y && q.y < g.y + g.h) {
+          S.item = i; S.slide2 = { id: SET_ROWS[i] };
+          setVolume(S.slide2.id, volAt(L, q.x), true);
+          return;
+        }
+      }
+      return;
+    }
     if (S.screen === 'jukebox' || S.screen === 'career' || S.screen === 'freeride') return;
     const b = stageBox();
     if (q.y > b.y0 && q.y < b.y1 && q.x >= b.x0 && q.x < b.x1)
       S.orbit = { x: q.x, y: q.y, yaw: S.cam.yaw, pitch: S.cam.pitch, moved: false };
   }
   function pointerMove(q) {
+    if (S.slide2) { setVolume(S.slide2.id, volAt(setLayout(), q.x), true); return; }
     const o = S.orbit;
     if (!o) return;
     if (!o.moved && Math.hypot(q.x - o.x, q.y - o.y) > 6) { o.moved = true; S.auto = false; }
@@ -1081,6 +1237,8 @@
     }
   }
   function pointerUp(q) {
+    // the lift that ends a slider drag must not also count as a tap on what is under it
+    if (S.slide2) { S.slide2 = null; return true; }
     const o = S.orbit; S.orbit = null;
     if (!o || !o.moved) return false;
     if (inLot() && Math.abs(q.x - o.x) > 90 && Math.abs(q.y - o.y) < 30) { shift(q.x < o.x ? 1 : -1); }
@@ -1092,6 +1250,23 @@
     const len = S.screen === 'hub' ? MENU.length : S.screen === 'visual' ? VISUAL.length : U.length;
     const change = S.screen === 'visual' ? pickVisualCat : S.screen === 'perf' ? pickPerfCat : null;
     if (code === 'Escape' || code === 'Backspace') { if (S.screen !== 'hub') go('hub'); return; }
+    if (S.screen === 'settings') {
+      if (code === 'ArrowDown' || code === 'ArrowUp') {
+        S.item = (S.item + (code === 'ArrowDown' ? 1 : SET_ROWS.length - 1)) % SET_ROWS.length;
+        Audio8.sfx.select();
+        return;
+      }
+      const row = SET_ROWS[S.item];
+      if ((code === 'ArrowLeft' || code === 'ArrowRight') && (row === 'music' || row === 'sfx')) {
+        setVolume(row, Audio8.vol(row) + (code === 'ArrowRight' ? VOL_STEP : -VOL_STEP), true);
+        return;
+      }
+      if (code === 'Enter' || code === 'Space') {
+        if (row === 'mute') { Audio8.toggleMute(); if (!Audio8.isMuted()) Audio8.sfx.click(); }
+        else if (row === 'reset') tapWipe();
+      }
+      return;
+    }
     if (S.screen === 'freeride') {
       if (code === 'ArrowDown' || code === 'ArrowUp') { S.item = (S.item + (code === 'ArrowDown' ? 1 : 2)) % 3; Audio8.sfx.select(); }
       const m = FREE_IDS[S.item];
@@ -1143,5 +1318,5 @@
   // screen is laid out again from scratch rather than left half in one and half in the other
   const relayout = () => { if (S.screen) setup(S.screen); };
 
-  window.Garage = { enter, update, draw, pointerDown, pointerMove, pointerUp, key, relayout, get screen() { return S.screen; }, set onRace(fn) { S.onRace = fn; }, set onCareer(fn) { S.onCareer = fn; }, set onFree(fn) { S.onFree = fn; } };
+  window.Garage = { enter, update, draw, pointerDown, pointerMove, pointerUp, key, relayout, get screen() { return S.screen; }, set onRace(fn) { S.onRace = fn; }, set onCareer(fn) { S.onCareer = fn; }, set onFree(fn) { S.onFree = fn; }, set onReset(fn) { S.onReset = fn; } };
 })();

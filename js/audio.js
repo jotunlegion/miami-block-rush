@@ -1,7 +1,17 @@
 // Chiptune synthwave soundtrack + SFX (pure WebAudio, no assets)
 (function () {
   let ac = null, master, musicBus, sfxBus, noiseBuf, pulse25, pulse12;
-  let muted = false;
+  // The mix the game was tuned at. A slider at 100% is exactly this, so the defaults sound
+  // like they always did and the sliders only ever take away.
+  const MASTER = 0.8, MUSIC_MIX = 0.42, SFX_MIX = 0.7;
+  // Sound lives in its own storage slot rather than in the save. It is a property of the
+  // room you are playing in, not of your progress, so wiping the progress must not hand the
+  // game back muted, and a fresh start must not undo the level you set on the bus home.
+  const SKEY = window.BOT_MODE ? 'mbr_sound_bot' : 'mbr_sound_v1';
+  let snd = { music: 1, sfx: 1, muted: false };
+  try { const v = JSON.parse(localStorage.getItem(SKEY)); if (v) snd = Object.assign(snd, v); } catch (e) { /* no storage */ }
+  const saveSnd = () => { try { localStorage.setItem(SKEY, JSON.stringify(snd)); } catch (e) { /* no storage */ } };
+  const clamp01 = (v) => Math.max(0, Math.min(1, v || 0));
   let music = null; // {mode, step, nextTime, bpm}
   let engine = null, siren = null;
 
@@ -14,10 +24,10 @@
     ac = new AC();
     const comp = ac.createDynamicsCompressor();
     comp.threshold.value = -14; comp.ratio.value = 4;
-    master = ac.createGain(); master.gain.value = 0.8;
+    master = ac.createGain(); master.gain.value = snd.muted ? 0 : MASTER;
     master.connect(comp); comp.connect(ac.destination);
-    musicBus = ac.createGain(); musicBus.gain.value = 0.42; musicBus.connect(master);
-    sfxBus = ac.createGain(); sfxBus.gain.value = 0.7; sfxBus.connect(master);
+    musicBus = ac.createGain(); musicBus.gain.value = MUSIC_MIX * snd.music; musicBus.connect(master);
+    sfxBus = ac.createGain(); sfxBus.gain.value = SFX_MIX * snd.sfx; sfxBus.connect(master);
     noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -208,12 +218,29 @@
     click() { if (!ac) return; tone(now(), 660, 0.05, 0.2, 'p25', sfxBus, 880); },
   };
 
-  function toggleMute() {
-    muted = !muted;
-    if (master) master.gain.value = muted ? 0 : 0.8;
-    if (window.Music) Music.setMuted(muted);
-    return muted;
+  // The engine and the siren hang off the SFX bus with everything else, so one slider covers
+  // the lot: no level where the blocks are quiet and the engine is still shouting.
+  function setVol(which, v) {
+    snd[which] = clamp01(v);
+    saveSnd();
+    if (which === 'music') {
+      if (musicBus) musicBus.gain.value = MUSIC_MIX * snd.music;
+      if (window.Music) Music.refreshVol();
+    } else if (sfxBus) sfxBus.gain.value = SFX_MIX * snd.sfx;
+    return snd[which];
   }
 
-  window.Audio8 = { init, startMusic, stopMusic, setEngine, setSiren, sfx, toggleMute, isMuted: () => muted };
+  function setMuted(m) {
+    snd.muted = !!m;
+    saveSnd();
+    if (master) master.gain.value = snd.muted ? 0 : MASTER;
+    if (window.Music) Music.setMuted(snd.muted);
+    return snd.muted;
+  }
+  const toggleMute = () => setMuted(!snd.muted);
+
+  window.Audio8 = {
+    init, startMusic, stopMusic, setEngine, setSiren, sfx,
+    toggleMute, setMuted, setVol, isMuted: () => snd.muted, vol: (which) => snd[which],
+  };
 })();
