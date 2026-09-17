@@ -15,7 +15,11 @@
       this.car = car; this.game = game;
       this.skill = Object.assign({ delay: 0.6, look: 1.6, mistake: 0.06 }, skill);
       this.t = 0.3 + Math.random() * 0.5;
+      this.rampX = -1e9;                // no second ramp until the car has driven past the first
     }
+
+    // slope cells carry their own type; only a flat block stores 1
+    slope(col, row) { return cellAt(this.game.world, col, row) > 1; }
 
     hasSupport(col, sr) {
       const w = this.game.world;
@@ -51,16 +55,25 @@
         }
         if (this.hasSupport(col, sr)) continue;
         if (Math.random() < this.skill.mistake) { this.t += 0.6; return; }
-        const bag = c.isPolice ? null : w.bags.find((b) => !b.taken && b.x > c.x + 30 && b.x < c.x + 300);
+        // A ramp is built to climb to one thing, and one climb is one ramp. This used to ask
+        // only whether money sat somewhere in a 300 pixel window, and then answered yes in
+        // every column it had to fill - so it laid ramp after ramp, and a row of ramps is not
+        // a climb: each one drops the car back to the road it started from. The builder got a
+        // sawtooth it never needed, never reached the money it built it for, and then hit its
+        // own handiwork at racing speed. Now the money has to be close enough and low enough
+        // that this ramp plus a jump actually reaches it, the ground behind must not already
+        // be rising, and the next ramp waits until the car is past this one.
+        const bag = c.isPolice || c.x < this.rampX ? null
+          : w.bags.find((b) => !b.taken && b.x > c.x + 30 && b.x < c.x + 170);
         const opts = [];
-        if (bag) {
+        if (bag && !this.slope(col - 1, sr - 1) && !this.slope(col - 2, sr - 1)) {
           const br = Math.floor(bag.y / CELL);
-          if (br < sr - 1 && sr > 4) opts.push([SHAPES.RAMP_UP, col, sr - 1]);
-          if (br > sr + 1 && sr < 10) opts.push([SHAPES.RAMP_DOWN, col, sr]);
+          if (br < sr - 1 && br >= sr - 3 && sr > 4) opts.push([SHAPES.RAMP_UP, col, sr - 1, true]);
+          if (br > sr + 1 && br <= sr + 3 && sr < 10) opts.push([SHAPES.RAMP_DOWN, col, sr, true]);
         }
         opts.push([SHAPES.I4, col, sr], [SHAPES.I3, col, sr], [SHAPES.I2, col, sr], [SHAPES.I3, col + 1, sr]);
-        for (const [shape, cc, rr] of opts) {
-          if (g.tryPlace(shape, cc, rr, c.gi)) return;
+        for (const [shape, cc, rr, ramp] of opts) {
+          if (g.tryPlace(shape, cc, rr, c.gi)) { if (ramp) this.rampX = c.x + 140; return; }
         }
         return;
       }
