@@ -17,8 +17,19 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 - A piece you lay yourself ignores traffic: drop it where a car stands and the car rides up
   onto it. Nothing around your own bumper is a dead zone any more
 - Slots deal the next piece the instant one is spent - no cooldown to wait out mid-race
+- One of the three slots is always a ramp. Three flat blocks in hand and a car in a pit is a
+  run lost to the deal rather than to the driver, so the piece that would have emptied the
+  tray of ways up is swapped for one. It comes from the ramps that carry their own floor, so
+  it can be laid in mid air over the hole and still be driven onto
 - Replaying a level hands back the same track, seed and all, not a fresh roll of the same
   number - you lose the run, not the road you had learned
+- A level is passed by reaching the finish, whatever place you came in: coming last already
+  costs you the money you did not earn, and that money is what the next car costs, so being
+  sent round again would charge for the same race twice. Two things fail a level - the cell,
+  since a cop touch is bought off at $50 a time and being taken in means there was nothing
+  left to pay with, and the finish line itself, because the rivals crossing it start a
+  countdown and a car still out on the road when it runs out never finished the track. A
+  Blacklist duel is a gate instead: the pink slip goes to first place only
 - No turning a piece: the game runs too fast to spend a beat on it. Every turn of a shape is
   its own piece and the tray deals it like any other - all but the turns that meet the car with
   the high end of the slope, which are a wall at race speed and are never dealt to anyone
@@ -26,6 +37,14 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 - Neon levels (4, 9, 14, ...): no blocks - you paint the road with your finger from a limited can of paint
 - Tunnel levels (8, 23, 38, ...): three parallel tunnels, one per racer, blocked by walls missing one or
   two pieces - drop them in and the filled column clears, Tetris style
+- A wall is a puzzle to read, not a target to hit. The tray hands the missing piece over on a
+  plate, so the only question is which one and where, and the piece the wall ahead is missing
+  drops into the hole it belongs in from anywhere pointed at that wall - roughly its own width
+  plus a cell of slack either side, and a row above or below. A piece the wall does not want is
+  laid exactly where it was pointed, like everywhere else, and a wall already cleared never
+  pulls anything back into it. Threading a narrow wall through its hole on a jump still works
+  as a skill shortcut. Inside a tunnel the car also rides closer to the left edge, so every
+  wall arrives that much later and the reading gets its time back
 - Bonus run (every 6th level): one car against five or six patrols and two helicopters, no
   finish line and no rivals - the road runs on forever and the only job is the money. It is
   a pursuit, not a race: every patrol starts behind you and hunts from behind, pushing
