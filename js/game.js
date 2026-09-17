@@ -3,6 +3,7 @@
   const { CELL, ROWS, FIELD_H, PIECES } = World;
   const STEP = 1 / 120;
   const DRAG_LIFT = 22;               // the held block rides this far above the fingertip
+  const TUNNEL_LEAD = 0.6;            // in a tunnel the car rides this much closer to the left edge
   const STAT_LABELS = ['ШВИДКІСТЬ', 'РОЗГІН', 'ПОЛІТ', 'МІЦНІСТЬ'];
   // On a desk the tray is worked with the left hand while the right one points at the road:
   // A S D take a piece, CTRL is nitro. The letters are written on the slots, but only where
@@ -165,12 +166,17 @@
       }
     },
 
+    // How far from the left edge the car rides. A wall in a tunnel is not a corner to steer
+    // round but a puzzle to read - which piece is missing, and where - so the car sits further
+    // left there and every wall arrives that much later, buying the thinking its time back.
+    camLead(v) { return this.world.tunnels ? Math.max(40, v * TUNNEL_LEAD) : v; },
+
     resetRace() {
       this.drag = null; this.grab = null; this.ink = null; this.platT = 3; this.banner = null;
       this.armed = null;
       this.count = 3.99; this.lastBeep = 4;
       this.raceTime = 0; this.finished = 0; this.endTimer = Infinity; this.acc = 0;
-      this.camX = this.player.x - 130;
+      this.camX = this.player.x - this.camLead(R.lead.base);
       this.state = 'countdown';
       Audio8.startMusic('race');
     },
@@ -469,6 +475,11 @@
         row = gap.row;
         col = Math.max(gap.col, Math.min(gap.col + gap.len - shape[0].length, col));
       }
+      // tunnels: the right piece aimed anywhere at the wall ahead drops into the hole it fits
+      if (this.world.tunnels) {
+        const fit = Tunnel.snap(this, piece, col, row, shape);
+        if (fit) { col = fit.col; row = fit.row; }
+      }
       const sxL = col * CELL - this.camX;
       const onScreen = sxL + sw > -ox && sxL < vw - ox && sy < TRAY_Y;
       // the ghost has to answer exactly what tryPlace will, cars included
@@ -531,7 +542,8 @@
       // the faster the car goes the further left it sits, so more of the road shows ahead -
       // which matters most in portrait, where there is barely half a landscape view to spend
       const lead = R.lead;
-      const target = p.x - (p.boost > 0 ? lead.fast : lead.base - Math.max(0, Math.min(1, (p.vx - 120) / 120)) * (lead.base - lead.fast));
+      const raw = p.boost > 0 ? lead.fast : lead.base - Math.max(0, Math.min(1, (p.vx - 120) / 120)) * (lead.base - lead.fast);
+      const target = p.x - this.camLead(raw);
       this.camX += (target - this.camX) * Math.min(1, dt * 5);
       this.camX = Math.max(-ox, Math.min(w.width - (vw - ox), this.camX));
 

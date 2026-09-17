@@ -4,6 +4,7 @@
 (function () {
   const { CELL, ROWS, PIECES, cellAt } = World;
   const WALL = 6;                     // owner index for wall blocks: its own warning palette
+  const REACH = 2;                    // cells of slack around a wall that still count as aiming at it
 
   // A hole is cut with these pieces only: full cells, and each of them covers every column
   // it spans, so filling the hole always completes every column of the wall. A perfectly
@@ -200,6 +201,34 @@
         Audio8.sfx.select();
         return;
       }
+    },
+
+    // ---------------- aim help ----------------
+    // A wall is a puzzle with exactly one answer per hole, and the tray hands that answer over
+    // on a plate. Making the player also hit a two cell target at racing speed taxes the finger
+    // rather than the reading, so a piece the wall ahead is missing, pointed anywhere at that
+    // wall, drops into the hole it belongs in. A piece the wall does not want is laid exactly
+    // where it was pointed, like everywhere else - the help is for an answer already found.
+    snap(game, piece, col, row, shape) {
+      const w = game.world, p = game.player;
+      if (!w.tunnels || !p || p.tunnel == null) return null;
+      const t = w.tunnels[p.tunnel];
+      if (!t) return null;
+      const c0 = col, c1 = col + shape[0].length - 1, r0 = row, r1 = row + shape.length - 1;
+      let best = null, bestD = Infinity;
+      for (const wall of t.walls) {
+        // the zone is the wall itself plus a cell of slack either side, and only a wall still
+        // standing: one already cleared must never pull a piece back into it
+        if (c1 < wall.col - REACH || c0 > wall.col + wall.w - 1 + REACH) continue;
+        if (r1 < wall.top - 1 || r0 > wall.bottom + 1) continue;
+        if (this.open(w, wall)) continue;
+        for (const h of this.need(w, wall)) {
+          if (h.p !== piece.p || h.v !== piece.v) continue;
+          const d = Math.abs(h.col - col) + Math.abs(h.row - row);
+          if (d < bestD) { bestD = d; best = h; }
+        }
+      }
+      return best ? { col: best.col, row: best.row } : null;
     },
 
     wants(game, piece) {
