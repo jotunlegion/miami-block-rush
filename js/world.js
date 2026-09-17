@@ -24,6 +24,14 @@
     { id: 'L', weight: 2, v: [[[1, 1, 1], [1, 0, 0]], [[1, 1, 1], [0, 0, 1]], [[1, 0, 0], [1, 1, 1]], [[0, 0, 1], [1, 1, 1]]] },
   ];
   const TOTAL_W = PIECES.reduce((s, p) => s + p.weight, 0);
+  // Pieces whose top face rises - the ones that get a car back up out of a hole. The tray is
+  // never allowed to run out of them: a car in a pit holding three flat blocks has lost the
+  // run to the deal rather than to the player. When one has to be forced, it comes from the
+  // ramps that carry their own floor, so it can be laid in mid air and still be driven onto.
+  const CLIMBS = PIECES.map((p, i) => i).filter((i) => ['RAMP', 'GLIDE', 'STEEP', 'LAUNCH', 'KICK'].indexOf(PIECES[i].id) >= 0);
+  const FLOORED = PIECES.map((p, i) => i).filter((i) => ['RAMP', 'LAUNCH', 'KICK'].indexOf(PIECES[i].id) >= 0);
+  const climbs = (q) => CLIMBS.indexOf(q.p) >= 0;
+  const rampPiece = (r) => ({ p: FLOORED[Math.floor(r() * FLOORED.length)], v: 0 });
 
   function rng(seed) {
     let a = seed >>> 0;
@@ -413,7 +421,7 @@
 
   window.World = {
     CELL, ROWS, FIELD_H, SAFE_W, SAFE_H, OWNER_STATIC, PIECES, INK_R,
-    create, recycle, cellAt, isSolid, normalAt, canPlace, place, bagRects, randomPiece, rng, recordTrail, trailY,
+    create, recycle, cellAt, isSolid, normalAt, canPlace, place, bagRects, randomPiece, climbs, rampPiece, rng, recordTrail, trailY,
     initInk, inkAdd, inkSolid,
   };
 })();

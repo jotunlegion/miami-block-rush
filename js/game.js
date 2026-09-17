@@ -132,6 +132,7 @@
       // dealt one at a time: on a tunnel level the next piece depends on what is already in the tray
       this.tray = [];
       if (!L.draw) for (let i = 0; i < 3; i++) this.tray.push({ piece: L.tutorial ? { p: 0, v: 0 } : this.nextPiece() });
+      if (this.tray.length) this.keepRamp(this.tray[2]);
       Paint.reset(this);
       this.resetRace();
     },
@@ -207,6 +208,7 @@
       this.free = null; this.boss = r;
       this.tray = [];
       for (let i = 0; i < 3; i++) this.tray.push({ piece: this.nextPiece() });
+      this.keepRamp(this.tray[2]);
       Paint.reset(this);
       this.resetRace();
     },
@@ -435,7 +437,17 @@
 
     // A spent slot is dealt its next piece on the spot. The cycle it used to sit out was dead
     // time the race never handed back: three slots meant laying two blocks and then waiting.
-    refill(slot) { slot.piece = this.nextPiece(); slot.flash = 0.22; },
+    refill(slot) { slot.piece = this.nextPiece(); this.keepRamp(slot); slot.flash = 0.22; },
+
+    // One of the three is always a ramp. Falling into a pit with nothing but flat blocks in
+    // hand is a run lost to the shuffle, not to the driver, so the slot that would have left
+    // the tray without a way up is dealt one instead. Tunnels deal to fit a wall and neon
+    // levels have no tray at all, so neither is touched.
+    keepRamp(slot) {
+      if (this.level.draw || this.level.tutorial || this.world.tunnels) return;
+      if (this.tray.some((s) => World.climbs(s.piece))) return;
+      slot.piece = World.rampPiece(Math.random);
+    },
 
     slotRect(i) { return R.slots[i]; },
 
