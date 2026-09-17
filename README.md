@@ -6,8 +6,15 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 **Neon mode test scene:** https://miami-block-rush.dimabondar2812.workers.dev/neon
 **Tunnel mode test scene:** https://miami-block-rush.dimabondar2812.workers.dev/tunnel
 
+- Plays either way up. Landscape is the old 480x270 view; portrait gets its own layout - the
+  race under a full-width HUD, a tray a third of the screen deep with slots and buttons half
+  again as big, and every menu, the garage and the Blacklist restacked into one column
 - Two ways to lay a block: drag it out of the tray, or tap it once to take it in hand and tap
   the field to drop it there. Both work everywhere, tunnel levels included
+- A dragged block hangs on the fingertip in screen space while its landing cells are outlined
+  on the road, so the block never drifts back with the scrolling world. With a mouse, a piece
+  taken from the tray becomes the cursor
+- Slots deal the next piece the instant one is spent - no cooldown to wait out mid-race
 - No turning a piece: the game runs too fast to spend a beat on it. Every turn of a shape is
   its own piece and the tray deals it like any other - all but the turns that meet the car with
   the high end of the slope, which are a wall at race speed and are never dealt to anyone
@@ -16,7 +23,7 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
 - Tunnel levels (8, 23, 38, ...): three parallel tunnels, one per racer, blocked by walls missing one or
   two pieces - drop them in and the filled column clears, Tetris style
 - Vanilla JavaScript + HTML5 Canvas, no build step, no dependencies
-- Designed for phones in landscape (16:9), pixel-perfect integer scaling
+- Pixel-perfect integer scaling, 480x270 landscape / 240x400-and-up portrait
 - Ukrainian interface
 
 ## Run locally
@@ -35,6 +42,7 @@ between two walls in seconds at the car's top speed, and what the next wall is m
 
 ## Structure
 
+- `js/layout.js` - the design box per orientation and every metric the screens hang off
 - `js/game.js` - game states, input, race HUD, rendering
 - `js/car.js` - car physics, voxel destruction, particles
 - `js/world.js` - grid, pieces, level generation, painted ink

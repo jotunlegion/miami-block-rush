@@ -221,12 +221,14 @@
   let bgCache = null;
   let skylineFar = null, skylineNear = null, palms = null;
 
-  function buildSky(vw, vh, oy) {
+  // baseY is where the road's top row is drawn: the sunset is hung off it so the horizon and
+  // the ground keep the same relation in landscape, in portrait and on any screen height.
+  function buildSky(vw, vh, baseY) {
     const c = document.createElement('canvas');
     c.width = vw; c.height = vh;
     const g = c.getContext('2d');
-    const horizon = oy + 150;
-    const top = oy - 10, bandH = (horizon - top) / SKY.length;
+    const horizon = baseY + 150;
+    const top = baseY - 10, bandH = (horizon - top) / SKY.length;
     const img = g.createImageData(vw, vh);
     const rgb = SKY.map((s) => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)]);
     for (let y = 0; y < horizon; y++) {
@@ -254,7 +256,7 @@
     // stars
     const r = World.rng(7);
     for (let i = 0; i < vw / 6; i++) {
-      const y = r() * (oy + 50);
+      const y = r() * (baseY + 50);
       g.fillStyle = r() < 0.2 ? '#ffd6f5' : '#8a6cc8';
       g.fillRect(Math.floor(r() * vw), Math.floor(y), 1, 1);
     }
@@ -315,9 +317,9 @@
     return c;
   }
 
-  function drawBackground(ctx, vw, vh, oy, camX, time) {
-    if (!bgCache || bgCache.vw !== vw || bgCache.vh !== vh || bgCache.oy !== oy) {
-      bgCache = Object.assign(buildSky(vw, vh, oy), { vw, vh, oy });
+  function drawBackground(ctx, vw, vh, baseY, camX, time) {
+    if (!bgCache || bgCache.vw !== vw || bgCache.vh !== vh || bgCache.baseY !== baseY) {
+      bgCache = Object.assign(buildSky(vw, vh, baseY), { vw, vh, baseY });
       skylineFar = buildSkyline(3, 60, '#3a1560', '#b04a9a', null, true);
       skylineNear = buildSkyline(11, 80, '#24103f', '#ffcf6a', true, false);
       palms = buildPalms();
@@ -336,7 +338,7 @@
     tileX(ctx, skylineNear, -camX * 0.22, hz - 80 + 18, vw);
     ctx.fillStyle = '#1a0a36';
     ctx.fillRect(0, hz + 18, vw, 2);
-    tileX(ctx, palms, -camX * 0.5, vh - 90 - Math.max(0, vh - (oy + 270)), vw);
+    tileX(ctx, palms, -camX * 0.5, Math.min(vh - 90, baseY + 180), vw);
   }
 
   function tileX(ctx, img, off, y, vw) {

@@ -162,7 +162,7 @@
         const wall = this.nextWall(w, p.tunnel, p.x);
         if (wall)
           for (const h of this.need(w, wall))
-            if (!game.tray.some((s) => s.cd <= 0 && s.piece.p === h.p && s.piece.v === h.v)) return { p: h.p, v: h.v };
+            if (!game.tray.some((s) => s.piece.p === h.p && s.piece.v === h.v)) return { p: h.p, v: h.v };
       }
       return World.randomPiece(Math.random);
     },
@@ -186,7 +186,6 @@
       const keep = new Set(), donors = [];
       for (let i = 0; i < game.tray.length; i++) {
         const s = game.tray[i];
-        if (s.cd > 0) continue;
         const hit = need.find((q) => key(q) === key(s.piece) && !keep.has(key(q)));
         if (hit) keep.add(key(hit));
         else if (i !== game.armed) donors.push(s);   // never swap the piece out of the player's hand

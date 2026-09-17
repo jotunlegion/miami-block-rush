@@ -175,9 +175,13 @@
       Font.draw(ctx, 'ФАРБА', x + 6, y + 5, low && blink ? '#ff5c7a' : '#ffffff', 1);
       Font.draw(ctx, Math.round(f * 100) + '%', x + w - 6, y + 5, low ? '#ff5c7a' : pal.hi, 1, 'right');
       const hint = game.paint <= 0 ? 'РОЗБИТА ТАЧКА ПОВЕРТАЄ ПІВБАКА' : low ? 'ЗБИРАЙ БАЛОНИ +20%' : 'МАЛЮЙ ПАЛЬЦЕМ - ЛІНІЯ СТАЄ ДОРОГОЮ';
-      Font.draw(ctx, hint, x + w / 2, y + 5, low && blink ? '#ffc31f' : '#8a7aa8', 1, 'center');
+      // a narrow gauge (the portrait tray is one screen wide, not one landscape wide) drops
+      // the hint to its own line rather than running it through the label and the percentage
+      const tight = w < Font.measure(hint, 1) + 76;
+      Font.draw(ctx, hint, x + w / 2, y + (tight ? 15 : 5), low && blink ? '#ffc31f' : '#8a7aa8', 1, 'center');
       // five cells, one per can
-      const bx = x + 6, by = y + 16, bw = w - 12, bh = h - 22, cw = (bw - 8) / 5;
+      const top = tight ? 26 : 16;
+      const bx = x + 6, by = y + top, bw = w - 12, bh = h - top - 6, cw = (bw - 8) / 5;
       for (let i = 0; i < 5; i++) {
         const cx = Math.round(bx + i * (cw + 2));
         ctx.fillStyle = '#12082a'; ctx.fillRect(cx, by, Math.round(cw), bh);

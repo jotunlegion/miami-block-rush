@@ -1,9 +1,8 @@
 // Main game: states, input, tray, HUD, rendering, pixel-perfect scaling
 (function () {
-  const { CELL, ROWS, FIELD_H, SAFE_W, SAFE_H, PIECES } = World;
-  const TRAY_Y = 222, SLOT_CD = 0.8, STEP = 1 / 120;
+  const { CELL, ROWS, FIELD_H, PIECES } = World;
+  const STEP = 1 / 120;
   const DRAG_LIFT = 22;               // the held block rides this far above the fingertip
-  const BTN_JUMP = { x: 6, y: TRAY_Y + 5, w: 68, h: 40 }, BTN_NITRO = { x: 406, y: TRAY_Y + 5, w: 68, h: 40 };
   const STAT_LABELS = ['ШВИДКІСТЬ', 'РОЗГІН', 'ПОЛІТ', 'МІЦНІСТЬ'];
   // On a desk the tray is worked with the left hand while the right one points at the road:
   // A S D take a piece, CTRL is nitro. The letters are written on the slots, but only where
@@ -16,21 +15,23 @@
   const sctx = screen.getContext('2d');
   const buf = document.createElement('canvas');
   const ctx = buf.getContext('2d');
-  let dpr = 1, scale = 1, vw = SAFE_W, vh = SAFE_H, ox = 0, oy = 0;
+  // Every screen metric comes from Layout, which hands back one design box per orientation:
+  // the old centred 480x270 in landscape, the whole view in portrait. P, DW, DH, CX, R and
+  // TRAY_Y are just that box unpacked, so the drawing code below reads the same either way.
+  let dpr = 1, scale = 1, vw = 480, vh = 270, ox = 0, oy = 0;
+  let P = false, DW = 480, DH = 270, CX = 240, R = Layout.race, TRAY_Y = R.trayY;
 
   function resize() {
-    dpr = window.devicePixelRatio || 1;
-    const W = Math.round(window.innerWidth * dpr), H = Math.round(window.innerHeight * dpr);
-    screen.width = W; screen.height = H;
-    let s = Math.min(W / SAFE_W, H / SAFE_H);
-    scale = s >= 1 ? Math.floor(s) : s;
-    vw = Math.ceil(W / scale); vh = Math.ceil(H / scale);
-    ox = Math.floor((vw - SAFE_W) / 2); oy = Math.floor((vh - SAFE_H) / 2);
+    const L = Layout.set(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
+    dpr = L.dpr; scale = L.scale; vw = L.vw; vh = L.vh; ox = L.ox; oy = L.oy;
+    P = L.portrait; DW = L.W; DH = L.H; CX = L.cx; R = L.race; TRAY_Y = R.trayY;
+    screen.width = L.pxW; screen.height = L.pxH;
     buf.width = vw; buf.height = vh;
     ctx.imageSmoothingEnabled = false;
     sctx.imageSmoothingEnabled = false;
   }
   window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', resize);
   resize();
 
   const tintCache = {};
@@ -76,12 +77,13 @@
     state: 'title', time: 0, selected: 0, buttons: [], shakeAmt: 0, camX: 0,
     world: null, cars: [], police: [], ais: [], tray: [], drag: null, banner: null, acc: 0,
     armed: null,                      // tap control: the tray slot whose piece is in hand
+    mouse: null,                      // last mouse position, design space - null on a touchscreen
     paint: 0, paintMax: 0, ink: null, dryT: 0,
 
     shake(n) { this.shakeAmt = Math.max(this.shakeAmt, n); },
 
     // screen metrics, used by the recording bot to issue touches in screen space
-    view() { return { dpr, scale, ox, oy, vw, vh }; },
+    view() { return { dpr, scale, ox, oy, vw, vh, portrait: P, W: DW, H: DH, cx: CX, race: R, trayY: TRAY_Y, fieldTop: R.fieldTop }; },
 
     toGarage(opts) {
       this.state = 'garage';
@@ -112,7 +114,7 @@
       if (L.tunnel) this.toTunnels();
       // dealt one at a time: on a tunnel level the next piece depends on what is already in the tray
       this.tray = [];
-      if (!L.draw) for (let i = 0; i < 3; i++) this.tray.push({ piece: L.tutorial ? { p: 0, v: 0 } : this.nextPiece(), cd: 0 });
+      if (!L.draw) for (let i = 0; i < 3; i++) this.tray.push({ piece: L.tutorial ? { p: 0, v: 0 } : this.nextPiece() });
       Paint.reset(this);
       this.resetRace();
     },
@@ -154,7 +156,7 @@
       this.police = []; this.heli = null; this.tut = null;
       this.boss = r;
       this.tray = [];
-      for (let i = 0; i < 3; i++) this.tray.push({ piece: this.nextPiece(), cd: 0 });
+      for (let i = 0; i < 3; i++) this.tray.push({ piece: this.nextPiece() });
       Paint.reset(this);
       this.resetRace();
     },
@@ -352,14 +354,17 @@
 
     onPaintCan(n) { Paint.pickCan(this, n); },
 
-    slotRect(i) { return { x: 240 + (i - 1) * 84 - 38, y: TRAY_Y + 3, w: 76, h: 44 }; },
+    // A spent slot is dealt its next piece on the spot. The cycle it used to sit out was dead
+    // time the race never handed back: three slots meant laying two blocks and then waiting.
+    refill(slot) { slot.piece = this.nextPiece(); slot.flash = 0.22; },
+
+    slotRect(i) { return R.slots[i]; },
 
     // A S D take a piece into the hand exactly as a thumb on the slot does, and the same key
     // again puts it back - a key that is held down must never turn into a second meaning.
     armSlot(i) {
       if (this.state !== 'race' && this.state !== 'countdown') return;
       if (this.level.draw || this.player.state === 'busted' || !this.tray[i]) return;
-      if (this.tray[i].cd > 0) { Audio8.sfx.invalid(); return; }
       this.drag = null;
       if (this.armed === i) { this.armed = null; Audio8.sfx.click(); }
       else { this.armed = i; Audio8.sfx.select(); }
@@ -372,7 +377,9 @@
     aim(piece, sx, sy, lifted) {
       const shape = PIECES[piece.p].v[piece.v];
       const sw = shape[0].length * CELL, sh = shape.length * CELL;
-      const cy = lifted ? sy - DRAG_LIFT - sh / 2 : sy;
+      // sy comes in design space; the field may be parked lower down the screen in portrait
+      const fy = sy - R.fieldTop;
+      const cy = lifted ? fy - DRAG_LIFT - sh / 2 : fy;
       // the cell is read off the fingertip in screen space every frame, so the scrolling road
       // never carries the piece away from the finger holding it
       let col = Math.round((sx + this.camX - sw / 2) / CELL);
@@ -442,14 +449,14 @@
       if (this.level.draw) Paint.update(dt, this);
       Particles.update(dt, w);
       for (let i = 0; i < w.flash.length; i++) if (w.flash[i] > 0) w.flash[i] = Math.max(0, w.flash[i] - dt * 10);
-      for (const s of this.tray) {
-        if (s.flash > 0) s.flash -= dt;
-        if (s.cd > 0) { s.cd -= dt; if (s.cd <= 0) { s.cd = 0; s.piece = this.nextPiece(); } }
-      }
+      for (const s of this.tray) if (s.flash > 0) s.flash -= dt;
       if (w.tunnels) Tunnel.restock(this, dt);
 
       this.updatePlatforms(dt);
-      const target = p.x - (p.boost > 0 ? 80 : 130 - Math.max(0, Math.min(1, (p.vx - 120) / 120)) * 50);
+      // the faster the car goes the further left it sits, so more of the road shows ahead -
+      // which matters most in portrait, where there is barely half a landscape view to spend
+      const lead = R.lead;
+      const target = p.x - (p.boost > 0 ? lead.fast : lead.base - Math.max(0, Math.min(1, (p.vx - 120) / 120)) * (lead.base - lead.fast));
       this.camX += (target - this.camX) * Math.min(1, dt * 5);
       this.camX = Math.max(-ox, Math.min(w.width - (vw - ox), this.camX));
 
@@ -512,6 +519,10 @@
       this.grab = null;
     },
 
+    // the field is drawn R.fieldTop below the design origin, so world-space work - painting,
+    // grabbing a platform, aiming a block - reads the pointer through here
+    toField(q) { return { x: q.x, y: q.y - R.fieldTop }; },
+
     toSafe(e) {
       const r = screen.getBoundingClientRect();
       return { x: ((e.clientX - r.left) * dpr) / scale - ox, y: ((e.clientY - r.top) * dpr) / scale - oy };
@@ -523,38 +534,36 @@
       if (this.state === 'garage') { Garage.pointerDown(q); return; }
       if ((this.state === 'race' || this.state === 'countdown') && this.player.state !== 'busted') {
         const inR = (r) => q.x >= r.x && q.x < r.x + r.w && q.y >= r.y && q.y < r.y + r.h;
-        if (inR(BTN_JUMP)) { this.player.jump(); this.pressJ = 0.15; return; }
-        if (!this.level.draw && inR(BTN_NITRO)) { if (this.player.useNitro()) this.shake(2); else Audio8.sfx.invalid(); this.pressN = 0.15; return; }
+        const f = this.toField(q);
+        if (inR(this.level.draw ? R.jumpWide : R.jump)) { this.player.jump(); this.pressJ = 0.15; return; }
+        if (!this.level.draw && inR(R.nitro)) { if (this.player.useNitro()) this.shake(2); else Audio8.sfx.invalid(); this.pressN = 0.15; return; }
         if (!this.grab && q.y < TRAY_Y) {
-          const wx = q.x + this.camX;
-          const pl = this.world.platforms.find((p) => wx >= p.x - 8 && wx < p.x + p.w + 8 && q.y >= p.y - 12 && q.y < p.y + 28);
-          if (pl) { this.grab = { id: e.pointerId, p: pl, off: q.y - pl.y, ty: pl.y }; pl.held = true; Audio8.sfx.grab(); return; }
+          const wx = f.x + this.camX;
+          const pl = this.world.platforms.find((p) => wx >= p.x - 8 && wx < p.x + p.w + 8 && f.y >= p.y - 12 && f.y < p.y + 28);
+          if (pl) { this.grab = { id: e.pointerId, p: pl, off: f.y - pl.y, ty: pl.y }; pl.held = true; Audio8.sfx.grab(); return; }
         }
         if (this.level.draw) {
           // a stroke never starts on a HUD button, so the sound and track taps still work
           const onBtn = this.buttons.some((b) => q.x >= b.x && q.x < b.x + b.w && q.y >= b.y && q.y < b.y + b.h);
-          if (q.y < TRAY_Y && !onBtn) Paint.down(this, e.pointerId, q);
+          if (q.y < TRAY_Y && !onBtn) Paint.down(this, e.pointerId, f);
           return;
         }
         // Tap control: a piece in hand goes down the moment the field is touched. Waiting for
         // the lift would cost the whole press, and this game is played on the reflex.
         if (this.armed != null && !this.drag && q.y < TRAY_Y && !this.buttons.some((b) => q.x >= b.x && q.x < b.x + b.w && q.y >= b.y && q.y < b.y + b.h)) {
           const slot = this.tray[this.armed];
-          if (slot.cd > 0) this.armed = null;
-          else {
-            const g = this.aim(slot.piece, q.x, q.y, false);
-            if (g.ok && this.tryPlace(g.shape, g.col, g.row, this.gi, true)) {
-              Audio8.sfx.place();
-              slot.cd = SLOT_CD;
-              this.armed = null;
-            } else Audio8.sfx.invalid();   // a miss keeps the piece in hand, ready for another go
-            this.draw();                   // on screen now, not on the next frame
-            return;
-          }
+          const g = this.aim(slot.piece, q.x, q.y, false);
+          if (g.ok && this.tryPlace(g.shape, g.col, g.row, this.gi, true)) {
+            Audio8.sfx.place();
+            this.refill(slot);
+            this.armed = null;
+          } else Audio8.sfx.invalid();   // a miss keeps the piece in hand, ready for another go
+          this.draw();                   // on screen now, not on the next frame
+          return;
         }
         for (let i = 0; i < 3; i++) {
           const r = this.slotRect(i);
-          if (!this.drag && this.tray[i].cd <= 0 && q.x >= r.x && q.x < r.x + r.w && q.y >= r.y && q.y < r.y + r.h) {
+          if (!this.drag && q.x >= r.x && q.x < r.x + r.w && q.y >= r.y && q.y < r.y + r.h) {
             // touching a slot takes its piece in hand, full stop - the tray lights up under the
             // thumb rather than on the lift, and no second meaning is hiding behind the same tap
             this.drag = { id: e.pointerId, slot: i, sx: q.x, sy: q.y, x0: q.x, y0: q.y, moved: false };
@@ -576,9 +585,10 @@
 
     pointerMove(e) {
       const q = this.toSafe(e);
+      this.mouse = e.pointerType === 'touch' ? null : q;
       if (this.state === 'garage') { Garage.pointerMove(q); return; }
-      if (this.grab && e.pointerId === this.grab.id) this.grab.ty = q.y - this.grab.off;
-      if (this.ink && e.pointerId === this.ink.id) { Paint.move(this, q); return; }
+      if (this.grab && e.pointerId === this.grab.id) this.grab.ty = q.y - R.fieldTop - this.grab.off;
+      if (this.ink && e.pointerId === this.ink.id) { Paint.move(this, this.toField(q)); return; }
       if (!this.drag || e.pointerId !== this.drag.id) return;
       this.dragTo(q);
       if (!this.drag.moved) {
@@ -605,7 +615,7 @@
           const g = this.ghost();
           if (g.ok && this.tryPlace(g.shape, g.col, g.row, this.gi, true)) {
             Audio8.sfx.place();
-            slot.cd = SLOT_CD;
+            this.refill(slot);
           } else Audio8.sfx.invalid();
           if (this.armed === d.slot) this.armed = null;
         }
@@ -650,32 +660,34 @@
       if (this.state === 'garage') {
         Garage.draw(ctx, { vw, vh, ox, oy, time: this.time, button: (x, y, w, h, fn) => this.buttons.push({ x, y, w, h, fn }) });
       } else {
-      const cam = this.state === 'title' || this.state === 'select' ? this.time * 40 : this.camX;
-      Art.drawBackground(ctx, vw, vh, oy, cam, this.time);
+      const menu = this.state === 'title' || this.state === 'select';
+      const cam = menu ? this.time * 40 : this.camX;
+      // the sunset hangs off the road: in the menus there is none, so it gets its own line
+      Art.drawBackground(ctx, vw, vh, menu ? oy + Layout.menuHorizon() : oy + R.fieldTop, cam, this.time);
       if (this.state === 'title') this.drawTitle();
       else if (this.state === 'select') this.drawSelect();
       else {
         this.drawWorld();
         this.drawTray();
-        this.drawHUD();
+        // the results sheet is its own screen: leaving the race HUD under it only put live
+        // buttons behind a dim overlay, and in portrait it collided with the heading outright
         if (this.state === 'results') this.drawResults();
+        else { this.drawHUD(); this.drawHeldCursor(); }
       }
       }
       if (window.Bot && (this.state === 'race' || this.state === 'countdown')) { ctx.save(); ctx.translate(ox, oy); Bot.draw(ctx); ctx.restore(); }
       if (window.Music && Music.started() && !(this.state === 'garage' && (Garage.screen === 'jukebox' || Garage.screen === 'career'))) {
         const acc = Profile.data && Profile.data.gang != null ? Art.TEAM[Profile.data.gang].main : '#ff3ea5';
         const inRace = this.state === 'race' || this.state === 'countdown' || this.state === 'results';
-        const pos = this.state === 'results' ? [4, 232, 196] : inRace ? [4, 184, 196] : this.state === 'garage' ? [176, 31, 164] : this.state === 'select' ? [4, 2, 168] : [4, 232, 196];
+        const pw = Math.min(196, DW - 8);
+        const pos = P
+          ? inRace ? [4, R.trayY - 38, pw] : this.state === 'garage' ? [4, 32, pw] : [4, DH - 42, pw]
+          : this.state === 'results' ? [4, 232, 196] : inRace ? [4, 184, 196] : this.state === 'garage' ? [176, 31, 164] : this.state === 'select' ? [4, 2, 168] : [4, 232, 196];
         ctx.save(); ctx.translate(ox, oy);
         Music.drawPopup(ctx, pos[0], pos[1], acc, pos[2]);
         ctx.restore();
       }
       UI.drawTransition(ctx, vw, vh, this.time);
-      if (vh > vw) {
-        ctx.fillStyle = '#12082ae0'; ctx.fillRect(0, 0, vw, vh);
-        Font.draw(ctx, 'ПОВЕРНИ ТЕЛЕФОН', vw / 2, vh / 2 - 12, '#ff3ea5', 2, 'center');
-        Font.draw(ctx, 'ГОРИЗОНТАЛЬНО', vw / 2, vh / 2 + 8, '#29e0d0', 2, 'center');
-      }
       if (window.Debug) Debug.draw(ctx, { vw, vh, ox, oy, time: this.time, button: (x, y, w, h, l, c, fn) => this.button(x, y, w, h, l, c, fn) });
       sctx.imageSmoothingEnabled = false;
       sctx.drawImage(buf, 0, 0, vw * scale, vh * scale);
@@ -684,51 +696,82 @@
     drawTitle() {
       const t = this.time;
       ctx.save(); ctx.translate(ox, oy);
-      Font.draw(ctx, 'MIAMI', 240, 34, '#ff3ea5', 6, 'center', '#29e0d0');
-      Font.draw(ctx, 'BLOCK RUSH', 240, 86, '#ffc31f', 3, 'center', '#8c1a5c');
-      Font.draw(ctx, 'ГАНГСТЕРСЬКІ ПЕРЕГОНИ 1986', 240, 116, '#fff1c9', 1, 'center');
-      for (let x = -16; x < SAFE_W + 16; x += 16) ctx.drawImage(Art.tile(1, 9), x - Math.floor((t * 60) % 16), 196);
+      // the logo sits high over the sunset, the traffic runs along the road below it
+      const top = P ? Math.round(DH * 0.16) : 34;
+      Font.draw(ctx, 'MIAMI', CX, top, '#ff3ea5', 6, 'center', '#29e0d0');
+      Font.draw(ctx, 'BLOCK RUSH', CX, top + 52, '#ffc31f', 3, 'center', '#8c1a5c');
+      Font.draw(ctx, 'ГАНГСТЕРСЬКІ ПЕРЕГОНИ 1986', CX, top + 82, '#fff1c9', 1, 'center');
+      // the road runs the full glass, not just the safe box: a wide phone had it stop short
+      const roadY = Layout.menuRoad(), x0 = -ox - 16, x1 = vw - ox + 16;
+      for (let x = x0; x < x1; x += 16) ctx.drawImage(Art.tile(1, 9), x - Math.floor((t * 60) % 16), roadY);
       [0, 1, 2].forEach((i) => {
-        const x = ((t * 50 + i * 170) % (SAFE_W + 120)) - 60;
-        drawMapPreview(starterMap(i), Math.round(x), 188, 1, t + i);
+        const span = x1 - x0 + 120;
+        const x = x0 - 60 + ((t * 50 + (i * span) / 3) % span);
+        drawMapPreview(starterMap(i), Math.round(x), roadY - 8, 1, t + i);
       });
-      if (Math.floor(t * 2) % 2 === 0) Font.draw(ctx, 'ТОРКНИСЬ, ЩОБ ПОЧАТИ', 240, 150, '#ffffff', 1, 'center');
+      if (Math.floor(t * 2) % 2 === 0) Font.draw(ctx, 'ТОРКНИСЬ, ЩОБ ПОЧАТИ', CX, top + 116, '#ffffff', 1, 'center');
       ctx.restore();
     },
 
-    drawSelect() {
-      const t = this.time;
-      ctx.save(); ctx.translate(ox, oy);
-      Font.draw(ctx, 'ОБЕРИ БАНДУ', 240, 10, '#ffffff', 2, 'center', '#8c1a5c');
-      GANGS.forEach((g, i) => {
-        const x = 13 + i * 154, y = 36, w = 146, h = 172;
-        const pal = Art.TEAM[i], sel = this.selected === i;
-        const lift = sel ? -2 : 0;
-        ctx.fillStyle = sel ? '#1f0c3ee8' : '#12082ac8';
-        ctx.fillRect(x, y + lift, w, h);
-        ctx.fillStyle = sel ? pal.main : pal.dark;
-        ctx.fillRect(x, y + lift, w, sel ? 2 : 1); ctx.fillRect(x, y + h - 1 + lift, w, 1);
-        ctx.fillRect(x, y + lift, 1, h); ctx.fillRect(x + w - 1, y + lift, 1, h);
-        const Y = y + lift;
-        const st = Catalog.STARTERS[i];
+    // One gang card. Landscape stands the three side by side; portrait lays them out as wide
+    // rows - the turntable on the right, the name and the stat bars filling the width.
+    gangCard(i, x, y, w, h, t) {
+      const g = GANGS[i], pal = Art.TEAM[i], sel = this.selected === i;
+      const lift = sel ? -2 : 0, Y = y + lift;
+      ctx.fillStyle = sel ? '#1f0c3ee8' : '#12082ac8';
+      ctx.fillRect(x, Y, w, h);
+      ctx.fillStyle = sel ? pal.main : pal.dark;
+      ctx.fillRect(x, Y, w, sel ? 2 : 1); ctx.fillRect(x, Y + h - 1, w, 1);
+      ctx.fillRect(x, Y, 1, h); ctx.fillRect(x + w - 1, Y, 1, h);
+      const st = Catalog.STARTERS[i], smap = starterMap(i);
+      const hop = i === 1 && sel ? Math.max(0, Math.sin(t * 5)) * 1.6 : 0;
+      const spin = { yaw: t * (sel ? 0.9 : 0.35) + i * 2, pitch: 0.34, bob: -hop, glow: sel ? pal.main : null, glowK: 0.5 };
+      if (P) {
+        // the block of text is a fixed height, so it is centred rather than pinned to the top
+        const cy = Y + Math.round((h - 96) / 2), carX = x + w - 52;
+        const barW = Math.max(46, Math.min(90, w - 178));
+        Voxel3D.render(ctx, smap, Object.assign({ cx: carX, cy: Y + h / 2 - 4, zoom: sel ? 2.3 : 1.9 }, spin));
+        Font.draw(ctx, g.name, x + 8, cy + 3, pal.main, 1, 'left');
+        Font.draw(ctx, st.name, x + 8, cy + 14, '#b9a8e0', 1, 'left');
+        Font.draw(ctx, g.desc, x + 8, cy + 25, '#fff1c9', 1, 'left');
+        Profile.bars(Profile.stats(st.id)).forEach((v, si) => {
+          const sy = cy + 42 + si * 13;
+          Font.draw(ctx, STAT_LABELS[si], x + 8, sy, '#d8ccff', 1, 'left');
+          UI.bar(ctx, x + 68, sy, barW, v, null, pal.main);
+        });
+      } else {
         Font.draw(ctx, g.name, x + w / 2, Y + 8, pal.main, 1, 'center');
         Font.draw(ctx, st.name, x + w / 2, Y + 19, '#b9a8e0', 1, 'center');
-        // rotating 3D voxel car on a mini turntable, like the garage showroom
-        const hop = i === 1 && sel ? Math.max(0, Math.sin(t * 5)) * 1.6 : 0;
-        const smap = starterMap(i);
-        Voxel3D.render(ctx, smap, { cx: x + w / 2, cy: Y + 47, zoom: sel ? 2.4 : 2, yaw: t * (sel ? 0.9 : 0.35) + i * 2, pitch: 0.34, bob: -hop, glow: sel ? pal.main : null, glowK: 0.5 });
+        Voxel3D.render(ctx, smap, Object.assign({ cx: x + w / 2, cy: Y + 47, zoom: sel ? 2.4 : 2 }, spin));
         Font.draw(ctx, g.desc, x + w / 2, Y + 80, '#fff1c9', 1, 'center');
         Profile.bars(Profile.stats(st.id)).forEach((v, si) => {
           const sy = Y + 98 + si * 16;
           Font.draw(ctx, STAT_LABELS[si], x + 8, sy, '#d8ccff', 1, 'left');
           UI.bar(ctx, x + 78, sy, 60, v, null, pal.main);
         });
-        this.buttons.push({ x, y, w, h, fn: () => (this.selected = i) });
-      });
+      }
+      this.buttons.push({ x, y, w, h, fn: () => (this.selected = i) });
+    },
+
+    drawSelect() {
+      const t = this.time;
+      ctx.save(); ctx.translate(ox, oy);
+      Font.draw(ctx, 'ОБЕРИ БАНДУ', CX, 10, '#ffffff', 2, 'center', '#8c1a5c');
+      if (P) {
+        // a card only needs room for its stats; a tall phone gets the slack as margin, not as
+        // three cards with a hole under every one of them
+        const top = 28, botH = 68, gap = 8, band = DH - top - botH;
+        const h = Math.min(Math.floor((band - gap * 2) / 3), 150);
+        const y0 = top + Math.round((band - (h * 3 + gap * 2)) / 2);
+        GANGS.forEach((g, i) => this.gangCard(i, 6, y0 + i * (h + gap), DW - 12, h, t));
+      } else {
+        GANGS.forEach((g, i) => this.gangCard(i, 13 + i * 154, 36, 146, 172, t));
+      }
       const pal = Art.TEAM[this.selected];
-      this.button(166, 216, 148, 24, 'ДО ГАРАЖУ', pal.main, () => { Profile.setGang(this.selected); UI.transition('slash', () => this.toGarage()); }, 2);
-      Font.draw(ctx, 'ТВОЯ БАНДА - ТВОЯ ПЕРША ТАЧКА. РЕШТУ КУПИШ.', 240, 252, '#b9a8e0', 1, 'center');
-      if (window.Music && Music.started()) Music.drawMini(ctx, 408, 4, (x, y, w, h, fn) => this.buttons.push({ x, y, w, h, fn }), pal.main);
+      const by = P ? DH - 60 : 216;
+      this.button(Math.round(CX - 74), by, 148, 24, 'ДО ГАРАЖУ', pal.main, () => { Profile.setGang(this.selected); UI.transition('slash', () => this.toGarage()); }, 2);
+      Font.draw(ctx, P ? 'БАНДА ДАЄ ПЕРШУ ТАЧКУ' : 'ТВОЯ БАНДА - ТВОЯ ПЕРША ТАЧКА. РЕШТУ КУПИШ.', CX, by + 30, '#b9a8e0', 1, 'center');
+      if (window.Music && Music.started()) Music.drawMini(ctx, P ? DW - 70 : 408, P ? DH - 26 : 4, (x, y, w, h, fn) => this.buttons.push({ x, y, w, h, fn }), pal.main);
       ctx.restore();
     },
 
@@ -737,7 +780,7 @@
       const sh = this.shakeAmt;
       const cx = Math.round(this.camX + (Math.random() - 0.5) * sh * 2);
       const cyOff = Math.round((Math.random() - 0.5) * sh);
-      ctx.save(); ctx.translate(ox, oy + cyOff);
+      ctx.save(); ctx.translate(ox, oy + R.fieldTop + cyOff);
 
       // start sign & finish gate
       const fx = Math.round(w.finishX - cx);
@@ -807,13 +850,23 @@
         ctx.fillRect(mx - 2, my, 5, 1); ctx.fillRect(mx - 1, my + 1, 3, 1); ctx.fillRect(mx, my + 2, 1, 1);
       }
 
+      // A dragged block is two things at once. The landing footprint is snapped to the grid and
+      // so it belongs to the road and scrolls with it. The block in the hand belongs to the
+      // hand: it is drawn on the fingertip in screen space, pixel for pixel, because a block
+      // that slides back with the road and then snaps a cell forward reads as if the finger
+      // lost it - worst of all in the tunnels, where the hole is one cell wide.
       if (this.drag && this.drag.moved && this.drag.sy < TRAY_Y) {
-        const g = this.ghost();
+        const d = this.drag, g = this.ghost();
+        const sw = g.shape[0].length * CELL, sh = g.shape.length * CELL;
         g.shape.forEach((line, dy) => line.forEach((ty, dx) => {
           if (!ty) return;
           const X = (g.col + dx) * CELL - cx, Y = (g.row + dy) * CELL;
-          ctx.globalAlpha = g.ok ? 0.75 : 0.5;
+          ctx.globalAlpha = g.ok ? 0.3 : 0.22;
           ctx.drawImage(g.ok ? Art.tile(ty, this.gi) : tintTile(ty, '#ff2a3a'), X, Y);
+          ctx.globalAlpha = g.ok ? 0.85 : 0.7;
+          ctx.fillStyle = g.ok ? Art.TEAM[this.gi].hi : '#ff2a3a';
+          ctx.fillRect(X, Y, CELL, 1); ctx.fillRect(X, Y + CELL - 1, CELL, 1);
+          ctx.fillRect(X, Y, 1, CELL); ctx.fillRect(X + CELL - 1, Y, 1, CELL);
           ctx.globalAlpha = 1;
           if (g.ok && g.swap.has(dy * 16 + dx)) {
             // this cell will overwrite an existing block
@@ -825,8 +878,41 @@
             ctx.fillRect(X, Y + 15, 4, 1); ctx.fillRect(X, Y + 12, 1, 4); ctx.fillRect(X + 12, Y + 15, 4, 1); ctx.fillRect(X + 15, Y + 12, 1, 4);
           }
         }));
+        // aim() hangs the piece DRAG_LIFT above the fingertip, so its bottom edge is there too
+        const hx = Math.round(d.sx - sw / 2), hy = Math.round(d.sy - DRAG_LIFT - sh - R.fieldTop);
+        ctx.globalAlpha = 0.3; ctx.fillStyle = '#05030c';
+        g.shape.forEach((line, dy) => line.forEach((ty, dx) => { if (ty) ctx.fillRect(hx + dx * CELL + 2, hy + dy * CELL + 3, CELL, CELL); }));
+        ctx.globalAlpha = 0.95;
+        g.shape.forEach((line, dy) => line.forEach((ty, dx) => { if (ty) ctx.drawImage(g.ok ? Art.tile(ty, this.gi) : tintTile(ty, '#ff2a3a'), hx + dx * CELL, hy + dy * CELL); }));
+        ctx.globalAlpha = 1;
       }
       if (this.ink) Paint.drawTip(ctx, this, cx, t);
+      ctx.restore();
+    },
+
+    // With a piece taken from the tray, the mouse pointer becomes that piece: it is what the
+    // tap will lay down, drawn where the tap would put it, so the hand and the hint are the same
+    // thing. A touchscreen has no pointer to replace, so it gets nothing.
+    drawHeldCursor() {
+      const held = this.armed != null && !this.drag && this.tray[this.armed] && !this.level.draw;
+      const on = held && this.mouse && (this.state === 'race' || this.state === 'countdown');
+      const want = on ? 'none' : '';
+      if (screen.style.cursor !== want) screen.style.cursor = want;
+      if (!on) return;
+      const piece = this.tray[this.armed].piece, shape = PIECES[piece.p].v[piece.v];
+      const sw = shape[0].length * CELL, sh = shape.length * CELL;
+      const g = this.aim(piece, this.mouse.x, this.mouse.y, false);
+      const x0 = Math.round(this.mouse.x - sw / 2), y0 = Math.round(this.mouse.y - sh / 2);
+      ctx.save(); ctx.translate(ox, oy);
+      ctx.globalAlpha = 0.3; ctx.fillStyle = '#05030c';
+      shape.forEach((line, dy) => line.forEach((t, dx) => { if (t) ctx.fillRect(x0 + dx * CELL + 2, y0 + dy * CELL + 3, CELL, CELL); }));
+      ctx.globalAlpha = 0.95;
+      shape.forEach((line, dy) => line.forEach((t, dx) => { if (t) ctx.drawImage(g.ok ? Art.tile(t, this.gi) : tintTile(t, '#ff2a3a'), x0 + dx * CELL, y0 + dy * CELL); }));
+      ctx.globalAlpha = 1;
+      // a hairline frame keeps the piece readable over the road it is about to join
+      ctx.fillStyle = g.ok ? '#ffffff' : '#ff2a3a';
+      ctx.fillRect(x0, y0 - 1, sw, 1); ctx.fillRect(x0, y0 + sh, sw, 1);
+      ctx.fillRect(x0 - 1, y0, 1, sh); ctx.fillRect(x0 + sw, y0, 1, sh);
       ctx.restore();
     },
 
@@ -838,13 +924,13 @@
       ctx.fillStyle = pal.dark; ctx.fillRect(0, oy + TRAY_Y + 1, vw, 1);
       ctx.save(); ctx.translate(ox, oy);
       this.drawControls(pal);
-      if (this.level.draw) Paint.drawGauge(ctx, this, 84, TRAY_Y + 5, 390, 40, this.time);
+      if (this.level.draw) { const G = R.gauge; Paint.drawGauge(ctx, this, G.x, G.y, G.w, G.h, this.time); }
       this.tray.forEach((s, i) => {
         const r = this.slotRect(i);
         const dragging = this.drag && this.drag.slot === i && this.drag.moved;
         const picked = this.armed === i && !dragging;
         // on a tunnel level the slot that fits the next wall is lit up
-        const wanted = s.cd <= 0 && this.world.tunnels && Tunnel.wants(this, s.piece);
+        const wanted = this.world.tunnels && Tunnel.wants(this, s.piece);
         ctx.fillStyle = '#1f0c3e'; ctx.fillRect(r.x, r.y, r.w, r.h);
         ctx.fillStyle = s.flash > 0 && Math.floor(this.time * 16) % 2 ? '#ffffff' : dragging ? pal.main : picked || wanted ? pal.hi : '#3d2f7a';
         ctx.fillRect(r.x, r.y, r.w, 1); ctx.fillRect(r.x, r.y + r.h - 1, r.w, 1); ctx.fillRect(r.x, r.y, 1, r.h); ctx.fillRect(r.x + r.w - 1, r.y, 1, r.h);
@@ -863,11 +949,6 @@
           ctx.globalAlpha = 1;
         }
         if (HAS_KEYS) Font.draw(ctx, SLOT_KEYS[i], r.x + 4, r.y + 4, picked || dragging ? '#ffffff' : '#6d5a9c', 1, 'left', null);
-        if (s.cd > 0) {
-          ctx.fillStyle = pal.dark;
-          ctx.fillRect(r.x + 4, r.y + r.h - 6, Math.round((r.w - 8) * (1 - s.cd / SLOT_CD)), 2);
-          return;
-        }
         const shape = PIECES[s.piece.p].v[s.piece.v];
         const sw = shape[0].length * CELL, sh = shape.length * CELL;
         // a held block sits off its slot, with its own shadow left behind on the floor
@@ -893,34 +974,47 @@
         ctx.fillRect(r.x, r.y, r.w, 1); ctx.fillRect(r.x, r.y + r.h - 1, r.w, 1); ctx.fillRect(r.x, r.y, 1, r.h); ctx.fillRect(r.x + r.w - 1, r.y, 1, r.h);
         ctx.fillStyle = '#ffffff22'; ctx.fillRect(r.x + 1, r.y + 1, r.w - 2, 1);
       };
-      const J = BTN_JUMP, canJ = p.canJump;
+      // glyph over caption, both centred in whatever rectangle the layout handed us: the
+      // portrait buttons are half the tray wide and nothing may drift off them
+      const artY = (r) => r.y + Math.round((r.h - 29) / 2);
+      const capY = (r) => artY(r) + 20;
+      const J = this.level.draw ? R.jumpWide : R.jump, canJ = p.canJump;
       box(J, canJ ? pal.main : '#3d2f7a', this.pressJ > 0 ? '#3a1a66' : '#1f0c3e');
-      const ax = J.x + J.w / 2, ay = J.y + 7;
+      const ax = Math.round(J.x + J.w / 2), ay = artY(J);
       ctx.fillStyle = canJ ? pal.hi : '#5a4a78';
       for (let k = 0; k < 5; k++) ctx.fillRect(ax - k, ay + k, k * 2 + 1, 1);
       ctx.fillRect(ax - 1, ay + 5, 3, 6);
-      Font.draw(ctx, 'СТРИБОК', ax, J.y + 27, canJ ? '#ffffff' : '#8a7aa8', 1, 'center');
+      Font.draw(ctx, 'СТРИБОК', ax, capY(J), canJ ? '#ffffff' : '#8a7aa8', 1, 'center');
 
       if (this.level.draw) return;
-      const N = BTN_NITRO, full = p.nitro >= 3, on = p.boost > 0;
+      const N = R.nitro, full = p.nitro >= 3, on = p.boost > 0;
       const glow = full && Math.floor(t * 4) % 2 === 0;
       box(N, on || full ? (glow ? '#ffffff' : '#29d9ff') : '#3d2f7a', this.pressN > 0 ? '#12305a' : '#1f0c3e');
+      const nx = Math.round(N.x + N.w / 2 - 21), ny = artY(N) - 2;
       for (let k = 0; k < 3; k++) {
         const filled = on ? k < Math.ceil(p.boost) : k < p.nitro;
         ctx.globalAlpha = filled ? 1 : 0.3;
-        ctx.drawImage(Art.nitro, N.x + 11 + k * 17, N.y + 5);
+        ctx.drawImage(Art.nitro, nx + k * 17, ny);
         ctx.globalAlpha = 1;
       }
       if (on) { ctx.fillStyle = '#29d9ff'; ctx.fillRect(N.x + 4, N.y + N.h - 5, Math.round((N.w - 8) * (p.boost / 3)), 2); }
-      Font.draw(ctx, on ? 'X3!' : 'НІТРО', N.x + N.w / 2, N.y + 27, full || on ? '#9fdcff' : '#8a7aa8', 1, 'center');
+      Font.draw(ctx, on ? 'X3!' : 'НІТРО', Math.round(N.x + N.w / 2), capY(N), full || on ? '#9fdcff' : '#8a7aa8', 1, 'center');
     },
 
     drawHUD() {
       const t = this.time, p = this.player;
       ctx.save(); ctx.translate(ox, oy);
+      // Landscape keeps the old strip along the top of the field. Portrait has no room beside
+      // the field, so the same readings get a 46px band of their own above it: the progress
+      // bar across the full width, the money board left, the standings right.
+      const moneyY = P ? 14 : 4;
+      const X0 = P ? 10 : 150, X1 = P ? DW - 18 : 330, ty = 6;
+      const rightX = P ? DW - 4 : 420, posY = P ? 14 : 4, lvlY = P ? 24 : 14;
+      const muteR = P ? { x: DW - 52, y: 34 } : { x: 428, y: 2 };
+      const trackR = P ? { x: DW - 104, y: 34 } : { x: 428, y: 16 };
       // money board
       this.cars.slice().sort((a, b) => a.gi - b.gi).forEach((c, row) => {
-        const gi = c.gi, pal = Art.TEAM[gi], y = 4 + row * 10;
+        const gi = c.gi, pal = Art.TEAM[gi], y = moneyY + row * 10;
         ctx.fillStyle = pal.main; ctx.fillRect(4, y, 6, 7);
         if (c.isPlayer) { ctx.fillStyle = '#ffffff'; ctx.fillRect(3, y + 3, 1, 1); }
         if (c.state === 'busted') Font.draw(ctx, 'ЗАТРИМАНО', 14, y, '#8a7aa8');
@@ -931,76 +1025,96 @@
         }
       });
       // progress track
-      const X0 = 150, X1 = 330, fin = this.world.finishX;
-      ctx.fillStyle = '#12082a'; ctx.fillRect(X0 - 2, 6, X1 - X0 + 4, 4);
-      ctx.fillStyle = '#5a4a78'; ctx.fillRect(X0, 7, X1 - X0, 2);
-      for (let k = 0; k < 3; k++) { ctx.fillStyle = k % 2 ? '#12082a' : '#ffffff'; ctx.fillRect(X1 + 1, 4 + k * 3, 3, 3); }
+      const fin = this.world.finishX;
+      ctx.fillStyle = '#12082a'; ctx.fillRect(X0 - 2, ty, X1 - X0 + 4, 4);
+      ctx.fillStyle = '#5a4a78'; ctx.fillRect(X0, ty + 1, X1 - X0, 2);
+      for (let k = 0; k < 3; k++) { ctx.fillStyle = k % 2 ? '#12082a' : '#ffffff'; ctx.fillRect(X1 + 1, ty - 2 + k * 3, 3, 3); }
       const px = (x) => Math.round(X0 + Math.max(0, Math.min(1, x / fin)) * (X1 - X0));
-      this.police.forEach((q) => { ctx.fillStyle = Math.floor(t * 7) % 2 ? '#ff2a3a' : '#2f6bff'; ctx.fillRect(px(q.x) - 1, 5, 3, 6); });
-      if (this.heli) { ctx.fillStyle = '#9cc4ff'; ctx.fillRect(px(this.heli.x) - 2, 2, 5, 2); }
+      this.police.forEach((q) => { ctx.fillStyle = Math.floor(t * 7) % 2 ? '#ff2a3a' : '#2f6bff'; ctx.fillRect(px(q.x) - 1, ty - 1, 3, 6); });
+      if (this.heli) { ctx.fillStyle = '#9cc4ff'; ctx.fillRect(px(this.heli.x) - 2, ty - 4, 5, 2); }
       this.cars.forEach((c) => {
         if (c.state === 'busted') return;
         ctx.fillStyle = c.isPlayer ? '#ffffff' : Art.TEAM[c.gi].main;
-        ctx.fillRect(px(c.x) - 2, c.isPlayer ? 3 : 5, c.isPlayer ? 5 : 3, c.isPlayer ? 10 : 6);
-        if (c.isPlayer) { ctx.fillStyle = Art.TEAM[c.gi].main; ctx.fillRect(px(c.x) - 1, 4, 3, 8); }
+        ctx.fillRect(px(c.x) - 2, c.isPlayer ? ty - 3 : ty - 1, c.isPlayer ? 5 : 3, c.isPlayer ? 10 : 6);
+        if (c.isPlayer) { ctx.fillStyle = Art.TEAM[c.gi].main; ctx.fillRect(px(c.x) - 1, ty - 2, 3, 8); }
       });
       // position
       const key = (c) => (c.state === 'busted' ? -1e9 : c.place ? 1e6 - c.place : c.x);
       const pos = 1 + this.cars.filter((c) => c !== p && key(c) > key(p)).length;
-      Font.draw(ctx, 'ПОЗ ' + pos + '/' + this.cars.length, 420, 4, '#ffffff', 1, 'right');
-      Font.draw(ctx, this.boss ? 'СПИСОК #' + this.boss.rank : 'РІВЕНЬ ' + this.level.n, 420, 14, '#b9a8e0', 1, 'right');
+      Font.draw(ctx, 'ПОЗ ' + pos + '/' + this.cars.length, rightX, posY, '#ffffff', 1, 'right');
+      Font.draw(ctx, this.boss ? 'СПИСОК #' + this.boss.rank : 'РІВЕНЬ ' + this.level.n, rightX, lvlY, '#b9a8e0', 1, 'right');
       if (p.boost > 0)
         for (let k = 0; k < 14; k++) {
           ctx.fillStyle = k % 3 ? '#ffffff55' : '#29d9ff88';
-          const ly = 20 + ((k * 53 + Math.floor(t * 60) * 7) % 190), lx = ((k * 97 + Math.floor(t * 900)) % 520) - 20;
-          ctx.fillRect(480 - lx, ly, 18 + (k % 3) * 8, 1);
+          const ly = R.fieldTop + 14 + ((k * 53 + Math.floor(t * 60) * 7) % (FIELD_H - 28));
+          const lx = ((k * 97 + Math.floor(t * 900)) % (DW + 40)) - 20;
+          ctx.fillRect(DW - lx, ly, 18 + (k % 3) * 8, 1);
         }
-      this.button(428, 2, 48, 12, Audio8.isMuted() ? 'ТИХО' : 'ЗВУК', '#9d8cff', () => Audio8.toggleMute());
-      if (window.Music && Music.started()) this.button(428, 16, 48, 12, 'ТРЕК >', '#29e0d0', () => Music.next());
+      this.button(muteR.x, muteR.y, 48, 12, Audio8.isMuted() ? 'ТИХО' : 'ЗВУК', '#9d8cff', () => Audio8.toggleMute());
+      if (window.Music && Music.started()) this.button(trackR.x, trackR.y, 48, 12, 'ТРЕК >', '#29e0d0', () => Music.next());
 
       if (this.state === 'countdown') {
         const n = Math.ceil(this.count), L = this.level;
-        if (this.boss) {
-          const r = this.boss, pw = Portraits.W * 2, ph = Portraits.H * 2, px = 24, py = 34;
-          ctx.fillStyle = '#05030c'; ctx.fillRect(px - 2, py - 2, pw + 4, ph + 4);
-          ctx.fillStyle = r.portrait.rim; ctx.fillRect(px - 1, py - 1, pw + 2, ph + 2);
-          ctx.drawImage(Portraits.build(r.portrait), px, py, pw, ph);
-          Font.draw(ctx, r.nick, px + pw / 2, py + ph + 6, '#ffffff', 1, 'center', '#12082a');
+        if (P) {
+          // one column down the middle: rival, then the count, then the level and its tips
+          let y = R.fieldTop + 4;
+          if (this.boss) {
+            const r = this.boss, pw = Portraits.W * 2, ph = Portraits.H * 2, bx = Math.round(CX - pw / 2);
+            ctx.fillStyle = '#05030c'; ctx.fillRect(bx - 2, y - 2, pw + 4, ph + 4);
+            ctx.fillStyle = r.portrait.rim; ctx.fillRect(bx - 1, y - 1, pw + 2, ph + 2);
+            ctx.drawImage(Portraits.build(r.portrait), bx, y, pw, ph);
+            Font.draw(ctx, r.nick, CX, y + ph + 4, '#ffffff', 1, 'center', '#12082a');
+            y += ph + 16;
+          } else y += 8;
+          Font.draw(ctx, String(n), CX, y, '#ffc31f', 5, 'center', '#8c1a5c');
+          Font.draw(ctx, this.boss ? L.name : 'РІВЕНЬ ' + L.n, CX, y + 44, '#ffffff', 2, 'center', '#12082a');
+          if (!this.boss) Font.draw(ctx, L.name, CX, y + 64, '#ffc31f', 1, 'center', '#12082a');
+          L.tips.forEach((str, i) => Font.draw(ctx, str, CX, y + 82 + i * 12, i === 0 ? '#ffc31f' : '#d8ccff', 1, 'center'));
+        } else {
+          if (this.boss) {
+            const r = this.boss, pw = Portraits.W * 2, ph = Portraits.H * 2, bx = 24, by = 34;
+            ctx.fillStyle = '#05030c'; ctx.fillRect(bx - 2, by - 2, pw + 4, ph + 4);
+            ctx.fillStyle = r.portrait.rim; ctx.fillRect(bx - 1, by - 1, pw + 2, ph + 2);
+            ctx.drawImage(Portraits.build(r.portrait), bx, by, pw, ph);
+            Font.draw(ctx, r.nick, bx + pw / 2, by + ph + 6, '#ffffff', 1, 'center', '#12082a');
+          }
+          // a duel keeps its text to the right of the rival's portrait
+          const tx = this.boss ? 300 : 240;
+          Font.draw(ctx, String(n), tx, 44, '#ffc31f', 6, 'center', '#8c1a5c');
+          Font.draw(ctx, this.boss ? L.name : 'РІВЕНЬ ' + L.n + ' - ' + L.name, tx, 98, '#ffffff', 2, 'center', '#12082a');
+          L.tips.forEach((str, i) => Font.draw(ctx, str, tx, 122 + i * 12, i === 0 ? '#ffc31f' : '#d8ccff', 1, 'center'));
         }
-        // a duel keeps its text to the right of the rival's portrait
-        const tx = this.boss ? 300 : 240;
-        Font.draw(ctx, String(n), tx, 44, '#ffc31f', 6, 'center', '#8c1a5c');
-        Font.draw(ctx, this.boss ? L.name : 'РІВЕНЬ ' + L.n + ' - ' + L.name, tx, 98, '#ffffff', 2, 'center', '#12082a');
-        L.tips.forEach((s, i) => Font.draw(ctx, s, tx, 122 + i * 12, i === 0 ? '#ffc31f' : '#d8ccff', 1, 'center'));
       }
-      if (p.state === 'hover') Font.draw(ctx, (this.level.draw ? 'МАЛЮЙ ПІД СОБОЮ! ' : 'БУДУЙ ПІД СОБОЮ! ') + Math.ceil(p.timer), 240, 30, '#29e0d0', 1, 'center');
+      const msgY = P ? Math.max(R.hudH + 4, R.fieldTop - 16) : 30;
+      if (p.state === 'hover') Font.draw(ctx, (this.level.draw ? 'МАЛЮЙ ПІД СОБОЮ! ' : 'БУДУЙ ПІД СОБОЮ! ') + Math.ceil(p.timer), CX, msgY, '#29e0d0', 1, 'center');
       if (this.state === 'race' && p.active) {
         const near = this.police.some((q) => p.x - q.x < 150);
-        if (near && Math.floor(t * 4) % 2) Font.draw(ctx, '< ПОЛІЦІЯ!', 8, 40, '#ff2a3a', 1, 'left');
+        if (near && Math.floor(t * 4) % 2) Font.draw(ctx, '< ПОЛІЦІЯ!', 8, R.fieldTop + 40, '#ff2a3a', 1, 'left');
       }
       if (p.state === 'finished' && this.endTimer !== Infinity && this.state === 'race' && this.cars.length > 1) {
-        Font.draw(ctx, 'ЧЕКАЄМО СУПЕРНИКІВ ' + Math.ceil(this.endTimer), 240, 30, '#fff1c9', 1, 'center');
-        this.button(210, 42, 60, 14, 'ДАЛІ >', '#ffc31f', () => this.showResults());
+        Font.draw(ctx, 'ЧЕКАЄМО СУПЕРНИКІВ ' + Math.ceil(this.endTimer), CX, msgY, '#fff1c9', 1, 'center');
+        this.button(CX - 30, msgY + 12, 60, 14, 'ДАЛІ >', '#ffc31f', () => this.showResults());
       }
       if (this.tut && this.state === 'race') this.drawTutorial();
-      if (this.banner) Font.draw(ctx, this.banner.text, 240, 70, this.banner.color, 3, 'center', '#12082a');
+      if (this.banner) Font.draw(ctx, this.banner.text, CX, R.fieldTop + 70, this.banner.color, 3, 'center', '#12082a');
       ctx.restore();
     },
 
     drawTutorial() {
       const T = this.tut, g = this.world.gap, t = this.time, p = this.player, w = this.world;
       const plate = (text, y, color) => {
-        const tw = Font.measure(text, 1), x = Math.round(240 - tw / 2 - 6);
+        const tw = Font.measure(text, 1), x = Math.round(CX - tw / 2 - 6);
         ctx.fillStyle = '#12082ae0'; ctx.fillRect(x, y - 3, Math.round(tw + 12), 13);
         ctx.fillStyle = color; ctx.fillRect(x, y + 9, Math.round(tw + 12), 1);
-        Font.draw(ctx, text, 240, y, color, 1, 'center');
+        Font.draw(ctx, text, CX, y, color, 1, 'center');
       };
+      const py0 = R.fieldTop + 44;
       if (T.bridged) {
-        if (p.state !== 'finished') plate('ЗБИРАЙ ГРОШІ І ЇДЬ ДО ФІНІШУ', 44, '#b6ff6a');
+        if (p.state !== 'finished') plate('ЗБИРАЙ ГРОШІ І ЇДЬ ДО ФІНІШУ', py0, '#b6ff6a');
         return;
       }
       // pulsing frame over the chasm
-      const W = g.len * CELL, tx = Math.round(g.col * CELL - this.camX), ty = g.row * CELL;
+      const W = g.len * CELL, tx = Math.round(g.col * CELL - this.camX), ty = g.row * CELL + R.fieldTop;
       ctx.fillStyle = Math.floor(t * 4) % 2 ? '#ffc31f' : '#fff3a0';
       for (let x = 0; x < W; x += 4) { ctx.fillRect(tx + x, ty, 2, 1); ctx.fillRect(tx + x + 2, ty + CELL - 1, 2, 1); }
       for (let y = 0; y < CELL; y += 4) { ctx.fillRect(tx, ty + y, 1, 2); ctx.fillRect(tx + W - 1, ty + y + 2, 1, 2); }
@@ -1017,26 +1131,61 @@
           ctx.drawImage(HAND, x + W / 2 - 2, y + 8);
         }
       }
-      plate('ПЕРЕТЯГНИ БЛОК З ПАНЕЛІ У ПРІРВУ', 44, '#ffc31f');
+      plate('ПЕРЕТЯГНИ БЛОК З ПАНЕЛІ У ПРІРВУ', py0, '#ffc31f');
       let wrong = false;
       for (let c = g.col; c < g.col + g.len; c++) for (let r = 1; r < ROWS; r++) if (r !== g.row && w.type[r * w.cols + c]) wrong = true;
-      if (wrong) plate('СТАВ БЛОК НА РІВНІ ДАХУ', 58, '#ff7cc6');
-      else if (p.hold) plate('МАШИНА ЧЕКАЄ, ПОКИ ТИ ЗБУДУЄШ МІСТ', 58, '#d8ccff');
+      if (wrong) plate('СТАВ БЛОК НА РІВНІ ДАХУ', py0 + 14, '#ff7cc6');
+      else if (p.hold) plate('МАШИНА ЧЕКАЄ, ПОКИ ТИ ЗБУДУЄШ МІСТ', py0 + 14, '#d8ccff');
     },
 
     drawDuelResults() {
       const r = this.boss, win = this.win, t = this.time;
+      const main = Art.TEAM[this.gi].main;
+      const quote = win ? r.lose : r.taunt;
+      const toCareer = () => UI.transition('shutter', () => this.toGarage({ earned: this.earned, screen: 'career' }), 'ЧОРНИЙ СПИСОК');
+      const retry = () => UI.transition('shutter', () => this.startCareer(r), r.nick + ' VS ТИ');
+      const garage = () => UI.transition('shutter', () => this.toGarage({ earned: this.earned }), 'ГАРАЖ');
+      const pw = Portraits.W * 2, ph = Portraits.H * 2;
+      const earned = 'ЗАРОБЛЕНО: ' + UI.money(this.earned) + (this.player.deaths ? '  (СМЕРТІ: ' + this.player.deaths + ', -' + Math.round((1 - Balance.deathMul(this.player.deaths)) * 100) + '%)' : '');
+      const mug = (px, py, dim) => {
+        ctx.fillStyle = '#05030c'; ctx.fillRect(px - 2, py - 2, pw + 4, ph + 4);
+        ctx.fillStyle = r.portrait.rim; ctx.fillRect(px - 1, py - 1, pw + 2, ph + 2);
+        ctx.drawImage(Portraits.build(r.portrait), px, py, pw, ph);
+        if (dim) { ctx.globalAlpha = 0.35; ctx.fillStyle = '#05030c'; ctx.fillRect(px, py, pw, ph); ctx.globalAlpha = 1; }
+      };
+      if (P) {
+        // one column: verdict, mugshot, what the rival says, the prize, then the buttons
+        Font.draw(ctx, win ? 'ТАЧКА ТВОЯ!' : 'ПОРАЗКА', CX, 14, win ? '#ffc31f' : '#ff3ea5', 2, 'center', '#12082a');
+        Font.draw(ctx, '#' + r.rank + ' ' + r.nick, CX, 34, '#d8ccff', 1, 'center');
+        mug(Math.round(CX - pw / 2), 48, win);
+        const qw = Math.min(DW - 12, Font.measure(quote, 1) + 16), qx = Math.round(CX - qw / 2), qy = 52 + ph;
+        ctx.fillStyle = '#f2eefa'; ctx.fillRect(qx, qy, qw, 17); ctx.fillRect(CX - 2, qy - 4, 4, 4);
+        Music.clipText(ctx, quote, qx + 8, qy + 5, qw - 16, '#12082a', 1, false, t);
+        const y = qy + 26;
+        if (win) {
+          const map = Custom.build(r.car);
+          Voxel3D.render(ctx, map, { cx: CX, cy: y + 34, zoom: 2.6, yaw: t * 0.9, pitch: 0.3, glow: map.glow });
+          Font.draw(ctx, r.car.name, CX, y + 62, '#ffffff', 2, 'center', '#12082a');
+          Font.draw(ctx, this.slip ? 'ТЕПЕР У ТВОЄМУ ГАРАЖІ' : 'ПЕРЕМОГА ЗАРАХОВАНА', CX, y + 82, '#9bf08a', 1, 'center');
+        } else {
+          const p = this.player, boss = this.cars[0];
+          Font.draw(ctx, p.place ? 'ТИ ФІНІШУВАВ ДРУГИМ' : 'ТИ НЕ ДОЇХАВ ДО ФІНІШУ', CX, y + 6, '#ff7cc6', 1, 'center');
+          Font.draw(ctx, 'РЕЙТИНГ ' + Profile.rating(boss.g) + ' ПРОТИ ТВОГО ' + Profile.rating(p.g), CX, y + 22, '#d8ccff', 1, 'center');
+          Font.draw(ctx, 'ПОТРІБНО ' + Math.round((r.need - 90) * 5), CX, y + 38, '#ffc31f', 1, 'center');
+          Font.draw(ctx, 'ПРОКАЧАЙ ТАЧКУ В ТЮНІНГУ', CX, y + 54, '#b9a8e0', 1, 'center');
+        }
+        Music.clipText(ctx, earned, 8, DH - 88, DW - 16, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, false, t);
+        this.button(Math.round(CX - 80), DH - 70, 160, 26, win ? 'КАР\'ЄРА' : 'ЩЕ РАЗ', main, win ? toCareer : retry, 2);
+        this.button(Math.round(CX - 80), DH - 38, 160, 26, 'В ГАРАЖ', '#9d8cff', garage, 2);
+        return;
+      }
       Font.draw(ctx, win ? 'ТАЧКА ТВОЯ!' : 'ПОРАЗКА', 240, 14, win ? '#ffc31f' : '#ff3ea5', 3, 'center', '#12082a');
       Font.draw(ctx, 'ЧОРНИЙ СПИСОК #' + r.rank + ' - ' + r.nick, 240, 40, '#d8ccff', 1, 'center');
-      const pw = Portraits.W * 2, ph = Portraits.H * 2, px = 44, py = 56;
-      ctx.fillStyle = '#05030c'; ctx.fillRect(px - 2, py - 2, pw + 4, ph + 4);
-      ctx.fillStyle = r.portrait.rim; ctx.fillRect(px - 1, py - 1, pw + 2, ph + 2);
-      ctx.drawImage(Portraits.build(r.portrait), px, py, pw, ph);
-      if (win) { ctx.globalAlpha = 0.35; ctx.fillStyle = '#05030c'; ctx.fillRect(px, py, pw, ph); ctx.globalAlpha = 1; }
+      mug(44, 56, win);
       // speech bubble
-      const quote = win ? r.lose : r.taunt, qw = Math.min(300, Font.measure(quote, 1) + 16);
+      const qw = Math.min(300, Font.measure(quote, 1) + 16);
       ctx.fillStyle = '#f2eefa'; ctx.fillRect(136, 62, qw, 17); ctx.fillRect(132, 68, 4, 4);
-      ctx.fillStyle = '#12082a'; Font.draw(ctx, quote, 144, 67, '#12082a', 1, 'left', null);
+      Font.draw(ctx, quote, 144, 67, '#12082a', 1, 'left', null);
       if (win) {
         const map = Custom.build(r.car);
         Voxel3D.render(ctx, map, { cx: 300, cy: 124, zoom: 3, yaw: t * 0.9, pitch: 0.3, glow: map.glow });
@@ -1049,11 +1198,10 @@
         Font.draw(ctx, 'ПОТРІБНО ПРИБЛИЗНО ' + Math.round((r.need - 90) * 5), 300, 132, '#ffc31f', 1, 'center');
         Font.draw(ctx, 'ПРОКАЧАЙ ТАЧКУ В ТЮНІНГУ', 300, 146, '#b9a8e0', 1, 'center');
       }
-      Font.draw(ctx, 'ЗАРОБЛЕНО: ' + UI.money(this.earned) + (this.player.deaths ? '  (СМЕРТІ: ' + this.player.deaths + ', -' + Math.round((1 - Balance.deathMul(this.player.deaths)) * 100) + '%)' : ''), 240, 180, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
-      const main = Art.TEAM[this.gi].main;
-      if (win) this.button(120, 194, 110, 22, 'КАР\'ЄРА', main, () => UI.transition('shutter', () => this.toGarage({ earned: this.earned, screen: 'career' }), 'ЧОРНИЙ СПИСОК'));
-      else this.button(120, 194, 110, 22, 'ЩЕ РАЗ', main, () => UI.transition('shutter', () => this.startCareer(r), r.nick + ' VS ТИ'));
-      this.button(250, 194, 110, 22, 'В ГАРАЖ', '#9d8cff', () => UI.transition('shutter', () => this.toGarage({ earned: this.earned }), 'ГАРАЖ'));
+      Font.draw(ctx, earned, 240, 180, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
+      if (win) this.button(120, 194, 110, 22, 'КАР\'ЄРА', main, toCareer);
+      else this.button(120, 194, 110, 22, 'ЩЕ РАЗ', main, retry);
+      this.button(250, 194, 110, 22, 'В ГАРАЖ', '#9d8cff', garage);
     },
 
     drawResults() {
@@ -1062,13 +1210,41 @@
       const L = this.level, busted = this.player.state === 'busted';
       if (this.boss) { this.drawDuelResults(); ctx.restore(); return; }
       const title = busted ? 'ТЕБЕ ЗАТРИМАЛИ' : this.win ? 'РІВЕНЬ ' + L.n + ' ПРОЙДЕНО!' : 'ПОРАЗКА';
-      Font.draw(ctx, title, 240, 18, this.win ? '#ffc31f' : '#ff3ea5', 3, 'center', '#12082a');
-      if (this.win) {
-        const nx = Levels.config(L.n + 1);
-        Font.draw(ctx, (this.unlocked ? 'ВІДКРИТО ' : 'ДАЛІ ') + 'РІВЕНЬ ' + nx.n + ': ' + nx.name, 240, 46, '#b6ff6a', 1, 'center');
-      } else if (this.cars.length > 1) {
-        const top = this.results[0].c;
-        Font.draw(ctx, top.state === 'busted' ? 'ПЕРЕМОЖЦІВ НЕМАЄ' : 'ПЕРЕМОЖЕЦЬ: ' + top.g.name, 240, 46, '#d8ccff', 1, 'center');
+      const main = Art.TEAM[this.gi].main;
+      const again = () => UI.transition('shutter', () => this.startRace(L.n), 'РІВЕНЬ ' + L.n);
+      const garage = () => UI.transition('shutter', () => this.toGarage({ earned: this.earned }), 'ГАРАЖ');
+      const next = () => UI.transition('shutter', () => this.startRace(L.n + 1), 'РІВЕНЬ ' + (L.n + 1));
+      const earned = 'ЗАРОБЛЕНО: ' + UI.money(this.earned) + (this.win && L.winBonus ? ' (+' + L.winBonus + ' ЗА ПЕРЕМОГУ)' : '');
+      let sub = '';
+      if (this.win) { const nx = Levels.config(L.n + 1); sub = (this.unlocked ? 'ВІДКРИТО ' : 'ДАЛІ ') + 'РІВЕНЬ ' + nx.n + ': ' + nx.name; }
+      else if (this.cars.length > 1) { const top = this.results[0].c; sub = top.state === 'busted' ? 'ПЕРЕМОЖЦІВ НЕМАЄ' : 'ПЕРЕМОЖЕЦЬ: ' + top.g.name; }
+      Font.draw(ctx, title, CX, P ? 16 : 18, this.win ? '#ffc31f' : '#ff3ea5', P ? 2 : 3, 'center', '#12082a');
+      Font.draw(ctx, sub, CX, P ? 38 : 46, this.win ? '#b6ff6a' : '#d8ccff', 1, 'center');
+      if (P) {
+        // one card per racer: name and total on the first line, the breakdown under it
+        const rw = DW - 12, rh = 46;
+        this.results.forEach((r, i) => {
+          const y = 54 + i * (rh + 6), c = r.c, pal = Art.TEAM[c.gi], x = 6;
+          ctx.fillStyle = c.isPlayer ? '#2a1450' : '#1a0c34'; ctx.fillRect(x, y, rw, rh);
+          ctx.fillStyle = pal.main; ctx.fillRect(x, y, 2, rh);
+          Font.draw(ctx, i + 1 + '.', x + 8, y + 8, '#ffffff', 1);
+          drawMapPreview(c.map, x + 40, y + 16, 1, this.time + i);
+          Music.clipText(ctx, c.g.name + (c.isPlayer ? ' (ТИ)' : ''), x + 60, y + 6, rw - 130, pal.hi, 1, false, this.time);
+          if (c.state === 'busted') { Font.draw(ctx, 'ЗАТРИМАНО', x + rw - 8, y + 6, '#ff2a3a', 1, 'right'); return; }
+          Font.draw(ctx, '$' + r.total, x + rw - 8, y + 4, '#ffffff', 2, 'right');
+          Font.draw(ctx, 'ГРОШІ $' + c.money, x + 60, y + 20, '#9bf08a', 1, 'left');
+          Font.draw(ctx, c.place ? 'ФІНІШ +' + c.bonus : 'ФІНІШ -', x + 60, y + 32, '#ffc31f', 1, 'left');
+          Font.draw(ctx, c.deaths ? 'СМЕРТІ ' + c.deaths + ' -' + Math.round((1 - Balance.deathMul(c.deaths)) * 100) + '%' : 'БЕЗ СМЕРТЕЙ', x + rw - 8, y + 32, c.deaths ? '#ff5c7a' : '#6a5a88', 1, 'right');
+        });
+        Music.clipText(ctx, earned, 8, 54 + this.results.length * 52 + 10, DW - 16, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, false, this.time);
+        const bw = Math.min(200, DW - 24), bx = Math.round(CX - bw / 2);
+        if (this.win) {
+          this.button(bx, DH - 102, bw, 26, 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, next, 2);
+          this.button(bx, DH - 70, bw, 26, 'ПЕРЕГРАТИ', '#29e0d0', again, 2);
+        } else this.button(bx, DH - 70, bw, 26, 'ЩЕ РАЗ', main, again, 2);
+        this.button(bx, DH - 38, bw, 26, 'В ГАРАЖ', '#9d8cff', garage, 2);
+        ctx.restore();
+        return;
       }
       Font.draw(ctx, 'ГРОШІ', 262, 62, '#8a7aa8', 1, 'right');
       Font.draw(ctx, 'ФІНІШ', 312, 62, '#8a7aa8', 1, 'right');
@@ -1087,12 +1263,9 @@
         Font.draw(ctx, c.deaths ? c.deaths + ' -' + Math.round((1 - Balance.deathMul(c.deaths)) * 100) + '%' : '0', 366, y + 11, c.deaths ? '#ff5c7a' : '#6a5a88', 1, 'right');
         Font.draw(ctx, '$' + r.total, 430, y + 11, '#ffffff', 1, 'right');
       });
-      Font.draw(ctx, 'ЗАРОБЛЕНО: ' + UI.money(this.earned) + (this.win && L.winBonus ? ' (+' + L.winBonus + ' ЗА ПЕРЕМОГУ)' : ''), 240, 178, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
-      const main = Art.TEAM[this.gi].main;
-      const again = () => UI.transition('shutter', () => this.startRace(L.n), 'РІВЕНЬ ' + L.n);
-      const garage = () => UI.transition('shutter', () => this.toGarage({ earned: this.earned }), 'ГАРАЖ');
+      Font.draw(ctx, earned, 240, 178, this.earned > 0 ? '#9bf08a' : '#ff5c7a', 1, 'center');
       if (this.win) {
-        this.button(36, 192, 150, 22, 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, () => UI.transition('shutter', () => this.startRace(L.n + 1), 'РІВЕНЬ ' + (L.n + 1)));
+        this.button(36, 192, 150, 22, 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, next);
         this.button(194, 192, 114, 22, 'ПЕРЕГРАТИ', '#29e0d0', again);
         this.button(316, 192, 128, 22, 'В ГАРАЖ', '#9d8cff', garage);
       } else {
@@ -1113,6 +1286,7 @@
   });
   screen.addEventListener('pointermove', (e) => { e.preventDefault(); if (!botOwnsInput()) Game.pointerMove(e); });
   screen.addEventListener('pointerup', (e) => { e.preventDefault(); if (!botOwnsInput()) Game.pointerUp(e); });
+  screen.addEventListener('pointerleave', () => { Game.mouse = null; });
   screen.addEventListener('pointercancel', () => { Game.drag = null; Game.ink = null; if (Game.grab) Game.releaseGrab(); });
   window.addEventListener('keydown', (e) => {
     if (Game.state === 'garage') { Garage.key(e.code); if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault(); return; }
@@ -1132,7 +1306,7 @@
   function loop(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    if (vh <= vw) Game.update(dt);
+    Game.update(dt);
     Game.draw();
     requestAnimationFrame(loop);
   }

@@ -1,6 +1,9 @@
 // Car physics (raycast suspension + rigid body), voxel destruction, particles
 (function () {
   const GRAV = 420, AIR_UP = 0.3, AIR_DOWN = 0.42, LAUNCH_BOOST = 1.3;
+  // The jump is a hop out of trouble, not a second way to fly: at 72 it clears a block and
+  // a bit, where the old 125 carried the car four rows up and made half the ramps pointless.
+  const JUMP_V = 72;
   const { isSolid, normalAt } = World;
 
   const GANGS = [
@@ -367,9 +370,10 @@
       let ux = Math.sin(this.a), uy = -Math.cos(this.a);
       // tipped over on its nose or roof: hop straight up and a little forward instead of sideways
       if (uy > -0.6) { ux = 0.35; uy = -0.94; }
-      this.vy = Math.min(this.vy, 0) + uy * 125;
-      this.vx = Math.max(0, this.vx + ux * 125);
-      this.va *= 0.3; this.jumpCd = 0.6; this.jumpT = 0.9; this.wasGrounded = false;
+      this.vy = Math.min(this.vy, 0) + uy * JUMP_V;
+      this.vx = Math.max(0, this.vx + ux * JUMP_V);
+      // the forward push lasts as long as the hop does, and the hop is a third of what it was
+      this.va *= 0.3; this.jumpCd = 0.6; this.jumpT = 0.5; this.wasGrounded = false;
       Particles.spark(this.x, this.y + 8, 8, ['#ffffff', '#b9a8e0'], 60);
       if (this.isPlayer) Audio8.sfx.jump();
       return true;

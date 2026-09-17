@@ -40,7 +40,17 @@
   };
   let E = null, ctx = null;
 
+  // Landscape draws into the old 480x270 box; portrait makes the whole view the box and
+  // stacks what used to sit side by side. These four read the box the frame was handed.
+  const PT = () => Layout.portrait;
+  const VW = () => Layout.W, VH = () => Layout.H;
+  const MX = () => Layout.cx;
+
   const CL_ROWS = 8, CL_H = 28;
+  // portrait stacks the rival card over the list instead of beside it, so the list takes
+  // whatever is left under the card; the same for the jukebox above its now-playing deck
+  const careerRows = () => (PT() ? Math.max(3, Math.floor((VH() - 252) / CL_H)) : CL_ROWS);
+  const jukeRows = () => (PT() ? Math.max(4, Math.min(10, Math.floor((VH() - 182) / 22))) : 6);
   const careerList = () => Blacklist.RIVALS.slice().sort((a, b) => a.rank - b.rank);
   const nextRival = () => careerList().filter((r) => !Profile.beaten(r.rank)).pop();
   function careerHint() {
@@ -83,6 +93,8 @@
   function flyTo(name, view) {
     const p = Object.assign(preset(name, curId() ? curMap() : null), view || {});
     p.fx *= 0.55; p.fy *= 0.7; p.fz *= 0.5;
+    // a portrait stage is a third of the screen, not two thirds of it
+    if (PT() && p.zoom) p.zoom *= 0.78;
     if (p.yaw != null) {
       let target = p.yaw;
       const cur = S.cam.yaw;
@@ -103,21 +115,26 @@
     S.previewCu = null; S.previewUp = null; S.confirm = false; S.slide.x = 0; S.toast = null; S.item = 0; S.scroll = 0;
     S.cat.sel = 0; S.cat.f = 0;
     UI.tween(S.dim, { a: 0 }, 0.3);
-    if (screen === 'hub') { if (!Profile.data.current) S.menu.sel = 1; S.cam.cx = 240; S.cam.cy = 126; S.cam.zoom = 2.6; flyTo('full'); S.menu.f = S.menu.sel; }
-    if (screen === 'visual') { UI.tween(S.cam, { cx: 168, cy: 116 }, 0.6, 'inOutCubic'); pickVisualCat(0); }
-    if (screen === 'perf') { UI.tween(S.cam, { cx: 232, cy: 124 }, 0.6, 'inOutCubic'); pickPerfCat(0); }
-    if (screen === 'lot') { S.cam.cx = 240; S.cam.cy = 112; setEra(S.era, true); flyTo('full', { zoom: 5 }); }
+    const port = PT(), mx = MX();
+    if (screen === 'hub') {
+      if (!Profile.data.current) S.menu.sel = 1;
+      S.cam.cx = mx; S.cam.cy = port ? Math.round(VH() * 0.3) : 126; S.cam.zoom = 2.6;
+      flyTo('full'); S.menu.f = S.menu.sel;
+    }
+    if (screen === 'visual') { UI.tween(S.cam, port ? { cx: mx, cy: 86 } : { cx: 168, cy: 116 }, 0.6, 'inOutCubic'); pickVisualCat(0); }
+    if (screen === 'perf') { UI.tween(S.cam, port ? { cx: mx, cy: 80 } : { cx: 232, cy: 124 }, 0.6, 'inOutCubic'); pickPerfCat(0); }
+    if (screen === 'lot') { S.cam.cx = mx; S.cam.cy = port ? Math.round(VH() * 0.28) : 112; setEra(S.era, true); flyTo('full', { zoom: 5 }); }
     if (screen === 'career') {
       const list = careerList(), nr = nextRival();
       S.item = nr ? list.indexOf(nr) : 0;
-      S.scroll = Math.max(0, Math.min(S.item - 3, list.length - CL_ROWS));
+      S.scroll = Math.max(0, Math.min(S.item - 3, list.length - careerRows()));
     }
     if (screen === 'jukebox' && window.Music) {
       S.item = Math.max(0, Music.tracks.indexOf(Music.current()));
-      S.scroll = Math.max(0, Math.min(S.item - 2, Music.tracks.length - 6));
+      S.scroll = Math.max(0, Math.min(S.item - 2, Music.tracks.length - jukeRows()));
     }
     if (screen === 'mycars') {
-      S.cam.cx = 240; S.cam.cy = 112;
+      S.cam.cx = mx; S.cam.cy = port ? Math.round(VH() * 0.28) : 112;
       S.list = Catalog.ALL.filter((c) => Profile.owned(c.id)).map((c) => c.id);
       S.idx = Math.max(0, S.list.indexOf(Profile.data.current));
       flyTo('full', { zoom: 5 });
@@ -232,15 +249,19 @@
   let bgKey = '', bgCanvas = null;
   function buildBg(showroom) {
     const { vw, vh, ox, oy } = E;
+    const port = PT();
     const c = document.createElement('canvas');
     c.width = vw; c.height = vh;
     const g = c.getContext('2d');
-    const floorY = oy + 172;
+    // the floor line is what everything else is measured from, and in portrait it sits at
+    // the waist of the screen so the turntable has headroom and the panels have a floor
+    const floorY = port ? Math.round(vh * 0.46) : oy + 172;
     const px = (x, y, col) => { g.fillStyle = col; g.fillRect(x, y, 1, 1); };
     const wallA = showroom ? [46, 20, 84] : [36, 19, 58], wallB = showroom ? [28, 12, 52] : [20, 11, 36];
     const img = g.createImageData(vw, vh);
+    const fade = port ? floorY - 2 : 170;
     for (let y = 0; y < vh; y++) {
-      const f = Math.min(1, Math.max(0, (y - oy) / 170));
+      const f = Math.min(1, Math.max(0, (y - oy) / fade));
       for (let x = 0; x < vw; x++) {
         const edge = Math.min(1, Math.abs(x - vw / 2) / (vw / 2));
         const th = BAYER[(y & 3) * 4 + (x & 3)] / 16;
@@ -258,7 +279,10 @@
           else if (y % 6 === 1 && (x + off) % 14 === 1) px(x, y, '#35214f');
         }
       }
-      const dx0 = ox + 160, dx1 = ox + 320, dy0 = oy + 40, open = oy + 120;
+      const dx0 = port ? Math.round(vw * 0.26) : ox + 160;
+      const dx1 = port ? Math.round(vw * 0.74) : ox + 320;
+      const dy0 = port ? Math.round(floorY * 0.2) : oy + 40;
+      const open = port ? Math.round(floorY * 0.62) : oy + 120;
       g.fillStyle = '#0a0614'; g.fillRect(dx0 - 4, dy0 - 4, dx1 - dx0 + 8, floorY - dy0 + 4);
       const sky = ['#3d1066', '#621676', '#8e2078', '#bb3272', '#e04c68', '#f7715a', '#ff9a52', '#ffc45c'];
       for (let y = open; y < floorY - 4; y++) { g.fillStyle = sky[Math.min(7, Math.floor(((y - open) / (floorY - 4 - open)) * 8))]; g.fillRect(dx0, y, dx1 - dx0, 1); }
@@ -269,22 +293,26 @@
       for (let y = dy0; y < open; y++) { const s = (y - dy0) % 7; g.fillStyle = s === 0 ? '#5c5680' : s === 6 ? '#16122a' : s & 1 ? '#34304c' : '#2e2a44'; g.fillRect(dx0, y, dx1 - dx0, 1); }
       g.fillStyle = '#ffc31f'; for (let x = dx0; x < dx1; x += 10) g.fillRect(x, open - 3, 5, 3);
       for (let i = 0; i < 4; i++) {
-        const tx = ox + 20, ty = floorY - 12 - i * 11;
+        const tx = port ? 4 : ox + 20, ty = floorY - 12 - i * 11;
         g.fillStyle = '#0e0a18'; g.fillRect(tx, ty, 30, 10); g.fillRect(tx - 1, ty + 1, 32, 8);
         g.fillStyle = '#2a2238'; g.fillRect(tx + 1, ty + 1, 28, 2);
         g.fillStyle = '#4a4260'; g.fillRect(tx + 11, ty + 4, 8, 2);
       }
-      const cx0 = ox + 62, cy0 = floorY - 46;
+      const cx0 = port ? vw - 44 : ox + 62, cy0 = floorY - 46;
       g.fillStyle = '#5a1420'; g.fillRect(cx0, cy0, 40, 46);
       g.fillStyle = '#a82a3a'; g.fillRect(cx0 + 1, cy0 + 1, 38, 44);
       for (let i = 0; i < 5; i++) { g.fillStyle = '#5a1420'; g.fillRect(cx0 + 1, cy0 + 8 + i * 8, 38, 1); g.fillStyle = '#e6ecf5'; g.fillRect(cx0 + 16, cy0 + 4 + i * 8, 8, 1); }
-      const sx0 = ox + 384, canCols = ['#29e0d0', '#ff3ea5', '#ffc31f', '#6aff5a', '#9d8cff'];
-      g.fillStyle = '#3a2a4a'; g.fillRect(sx0, oy + 104, 80, 3); g.fillRect(sx0, oy + 134, 80, 3);
-      for (let i = 0; i < 7; i++) { g.fillStyle = canCols[i % 5]; g.fillRect(sx0 + 4 + i * 11, oy + 94, 7, 10); g.fillStyle = '#ffffff55'; g.fillRect(sx0 + 5 + i * 11, oy + 95, 1, 8); }
-      for (let i = 0; i < 5; i++) { g.fillStyle = '#2a2238'; g.fillRect(sx0 + 6 + i * 15, oy + 122, 11, 12); g.fillStyle = canCols[(i + 2) % 5]; g.fillRect(sx0 + 6 + i * 15, oy + 126, 11, 3); }
+      // the paint shelf needs a wall the portrait garage does not have to spare
+      if (!port) {
+        const sx0 = ox + 384, canCols = ['#29e0d0', '#ff3ea5', '#ffc31f', '#6aff5a', '#9d8cff'];
+        g.fillStyle = '#3a2a4a'; g.fillRect(sx0, oy + 104, 80, 3); g.fillRect(sx0, oy + 134, 80, 3);
+        for (let i = 0; i < 7; i++) { g.fillStyle = canCols[i % 5]; g.fillRect(sx0 + 4 + i * 11, oy + 94, 7, 10); g.fillStyle = '#ffffff55'; g.fillRect(sx0 + 5 + i * 11, oy + 95, 1, 8); }
+        for (let i = 0; i < 5; i++) { g.fillStyle = '#2a2238'; g.fillRect(sx0 + 6 + i * 15, oy + 122, 11, 12); g.fillStyle = canCols[(i + 2) % 5]; g.fillRect(sx0 + 6 + i * 15, oy + 126, 11, 3); }
+      }
     } else {
-      for (let i = 0; i < 5; i++) {
-        const wx = ox - 60 + i * 130, wy = oy + 14, ww = 110, wh = floorY - wy - 10;
+      const wn = port ? 3 : 5, wstep = port ? Math.round(vw / 2.4) : 130, wgap = port ? 30 : 60;
+      for (let i = 0; i < wn; i++) {
+        const wx = ox - wgap + i * wstep, wy = oy + 14, ww = port ? wstep - 20 : 110, wh = floorY - wy - 10;
         g.fillStyle = '#120a2e'; g.fillRect(wx, wy, ww, wh);
         for (let x = wx; x < wx + ww; x++) {
           const h = 20 + ((x * 7) % 31) + ((x >> 3) % 3) * 14;
@@ -298,14 +326,16 @@
     g.fillStyle = showroom ? '#3d2f7a' : '#2a1d4a'; g.fillRect(0, floorY - 4, vw, 1);
     g.fillStyle = '#0a0614'; g.fillRect(0, floorY - 3, vw, 3);
     for (let y = floorY; y < vh; y++) { g.fillStyle = showroom ? (y % 2 ? '#1e1238' : '#221440') : '#0e0818'; g.fillRect(0, y, vw, 1); }
-    const vpY = floorY - 140;
+    const vpY = floorY - (port ? Math.round(vh * 0.3) : 140);
     g.fillStyle = showroom ? '#34225a' : '#1a1030';
     for (let i = -24; i <= 24; i++) for (let y = floorY; y < vh; y++) { const x = Math.round(vw / 2 + i * 22 * ((y - vpY) / (floorY - vpY))); if (x >= 0 && x < vw) g.fillRect(x, y, 1, 1); }
     let gap = 3;
     for (let y = floorY + 2; y < vh; y += gap, gap += 2) g.fillRect(0, y, vw, 1);
-    for (const lx of showroom ? [ox + 90, ox + 240, ox + 390] : [ox + 110, ox + 240, ox + 370]) {
+    const cones = port ? [Math.round(vw * 0.22), Math.round(vw * 0.5), Math.round(vw * 0.78)]
+      : showroom ? [ox + 90, ox + 240, ox + 390] : [ox + 110, ox + 240, ox + 370];
+    for (const lx of cones) {
       for (let y = oy + 26; y < floorY; y++) {
-        const f = (y - oy - 26) / (floorY - oy - 26), half = 6 + f * 52;
+        const f = (y - oy - 26) / (floorY - oy - 26), half = 6 + f * (port ? 34 : 52);
         for (let x = Math.floor(lx - half); x <= lx + half; x++) {
           const dens = (1 - Math.abs(x - lx) / half) * (1 - f * 0.6) * (showroom ? 0.28 : 0.2);
           if (dens > BAYER[(y & 3) * 4 + (x & 3)] / 16 + 0.04) px(x, y, showroom ? '#6a4aa8' : '#4a3a5e');
@@ -319,14 +349,15 @@
   }
 
   function drawBg(showroom) {
-    const key = [E.vw, E.vh, E.oy, showroom].join(',');
+    const key = [E.vw, E.vh, E.oy, PT(), showroom].join(',');
     if (key !== bgKey) { bgCanvas = buildBg(showroom); bgKey = key; }
     ctx.drawImage(bgCanvas, 0, 0);
     if (!showroom && S.screen === 'hub') {
       const pal = Art.TEAM[gang()], label = GANGS[gang()].name;
+      const nx = PT() ? MX() : E.ox + 258, ny = PT() ? 74 : E.oy + 36;
       if (Math.floor(E.time * 12) % 37 !== 0) {
-        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) Font.draw(ctx, label, E.ox + 258 + dx, E.oy + 36 + dy, pal.dark, 2, 'center', null);
-        Font.draw(ctx, label, E.ox + 258, E.oy + 36, pal.hi, 2, 'center', null);
+        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) Font.draw(ctx, label, nx + dx, ny + dy, pal.dark, 2, 'center', null);
+        Font.draw(ctx, label, nx, ny, pal.hi, 2, 'center', null);
       }
     }
   }
@@ -374,8 +405,12 @@
     ctx.fillStyle = '#ffffff14'; ctx.fillRect(x + skew + 1, y + 1, w - skew - 2, 1);
   }
 
+  // The header is one row either way. Portrait has no room for a full-size title beside the
+  // cash, so the title drops to single size there and the money keeps the big digits - the
+  // number is what a player checks on every screen.
   function topBar(title, icon) {
     const k = UI.Ease.outCubic(S.enter.k), y = Math.round(-34 * (1 - k));
+    const port = PT(), ts = port ? 1 : 2;
     let tx = 4;
     if (S.screen !== 'hub') {
       slant(4, 5 + y, 30, 22, '#12082af0', '#ffffff');
@@ -383,24 +418,34 @@
       E.button(0, 0, 36, 30, () => { Audio8.sfx.click(); go('hub'); });
       tx = 38;
     }
-    slant(tx, 5 + y, 22 + Font.measure(title, 2) + 16, 22, '#12082af0', accent());
+    slant(tx, 5 + y, 22 + Font.measure(title, ts) + 16, 22, '#12082af0', accent());
     UI.icon(ctx, icon, tx + 9, 10 + y, accentHi());
-    Font.draw(ctx, title, tx + 26, 9 + y, '#ffffff', 2);
+    Font.draw(ctx, title, tx + 26, y + (port ? 12 : 9), '#ffffff', ts);
+    const cash = UI.money(S.cash.v);
+    if (port) {
+      const cw = Font.measure(cash, 2) + 22, cx = VW() - 4 - cw;
+      slant(cx, 5 + y, cw, 22, '#12082af0', '#3d2f7a', 4);
+      Font.draw(ctx, cash, VW() - 10, 9 + y, '#9bf08a', 2, 'right');
+      return;
+    }
     slant(292, 5 + y, 184, 22, '#12082af0', '#3d2f7a');
     Font.draw(ctx, 'ГОТІВКА', 306, 13 + y, '#8a7aa8');
-    Font.draw(ctx, UI.money(S.cash.v), 468, 9 + y, '#9bf08a', 2, 'right');
+    Font.draw(ctx, cash, 468, 9 + y, '#9bf08a', 2, 'right');
     if (window.Music && Music.started()) Music.drawMini(ctx, 226, 5 + y, E.button, accent());
   }
 
   function carousel(items, st, y, onActivate, onChange) {
     const k = UI.Ease.outCubic(S.enter.k);
     const yy0 = Math.round(y + (1 - k) * 80);
+    // portrait cards are narrower and sit closer, so three still read on a 240-wide screen
+    const port = PT(), gap = port ? Math.round(VW() * 0.28) : 96;
+    const bw = port ? 50 : 66, bg = port ? 30 : 46, bh = port ? 32 : 38, bgh = port ? 14 : 18;
     items.forEach((it, i) => {
       const d = i - st.f, ad = Math.abs(d);
       if (ad > 2.7) return;
       const big = Math.max(0, 1 - ad);
-      const w = Math.round(66 + big * 46), h = Math.round(38 + big * 18);
-      const x = Math.round(240 + d * 96 - w / 2), yy = Math.round(yy0 + (1 - big) * 10);
+      const w = Math.round(bw + big * bg), h = Math.round(bh + big * bgh);
+      const x = Math.round(MX() + d * gap - w / 2), yy = Math.round(yy0 + (1 - big) * 10);
       const sel = i === st.sel;
       ctx.globalAlpha = Math.max(0.35, 1 - ad * 0.28);
       slant(x, yy, w, h, sel ? '#2a1450f4' : '#12082ae8', sel ? accent() : '#3d2f7a', 8);
@@ -414,61 +459,70 @@
         else { st.sel = i; UI.tween(st, { f: i }, 0.35, 'outCubic'); Audio8.sfx.select(); if (onChange) onChange(i); }
       });
     });
+    const h0 = bh + bgh;
     const step = (dir) => { const n = Math.max(0, Math.min(items.length - 1, st.sel + dir)); if (n !== st.sel) { st.sel = n; UI.tween(st, { f: n }, 0.35, 'outCubic'); Audio8.sfx.select(); if (onChange) onChange(n); } };
-    slant(4, yy0 + 18, 22, 22, '#12082ae8', '#3d2f7a', 4); UI.icon(ctx, 'arrowL', 9, yy0 + 23, '#ffffff');
-    E.button(0, yy0 + 12, 30, 34, () => step(-1));
-    slant(454, yy0 + 18, 22, 22, '#12082ae8', '#3d2f7a', 4); UI.icon(ctx, 'arrowR', 459, yy0 + 23, '#ffffff');
-    E.button(450, yy0 + 12, 30, 34, () => step(1));
+    const ay = yy0 + Math.round(h0 / 2) - 11, ar = VW() - 26;
+    slant(2, ay, 22, 22, '#12082ae8', '#3d2f7a', 4); UI.icon(ctx, 'arrowL', 7, ay + 5, '#ffffff');
+    E.button(0, ay - 6, 30, 34, () => step(-1));
+    slant(ar, ay, 22, 22, '#12082ae8', '#3d2f7a', 4); UI.icon(ctx, 'arrowR', ar + 5, ay + 5, '#ffffff');
+    E.button(ar - 4, ay - 6, 30, 34, () => step(1));
   }
 
-  function statPanel(x, y, s, prev) {
+  function statPanel(x, y, s, prev, w) {
     const k = UI.Ease.outCubic(S.enter.k);
+    w = w || 132;
     x = Math.round(x - 150 * (1 - k));
-    slant(x, y, 132, S.screen === 'perf' ? 84 : 72, '#12082ae8', accent());
+    slant(x, y, w, S.screen === 'perf' ? 84 : 72, '#12082ae8', accent());
     const r0 = Profile.rating(s), r1 = prev ? Profile.rating(prev) : r0;
     Font.draw(ctx, 'РЕЙТИНГ', x + 10, y + 7, '#b9a8e0');
-    Font.draw(ctx, String(r0), x + 118, y + 4, '#ffffff', 2, 'right');
-    if (r1 !== r0) Font.draw(ctx, (r1 > r0 ? '+' : '') + (r1 - r0), x + 118, y + 20, r1 > r0 ? '#6aff5a' : '#ff5c7a', 1, 'right');
+    Font.draw(ctx, String(r0), x + w - 14, y + 4, '#ffffff', 2, 'right');
+    if (r1 !== r0) Font.draw(ctx, (r1 > r0 ? '+' : '') + (r1 - r0), x + w - 14, y + 20, r1 > r0 ? '#6aff5a' : '#ff5c7a', 1, 'right');
     const b = Profile.bars(s), pb = prev ? Profile.bars(prev) : null;
     STAT_NAMES.forEach((n, i) => {
       Font.draw(ctx, n, x + 8, y + 30 + i * 10, '#8a7aa8');
-      UI.bar(ctx, x + 66, y + 31 + i * 10, 56, b[i], pb ? pb[i] : null, accent());
+      UI.bar(ctx, x + 66, y + 31 + i * 10, w - 76, b[i], pb ? pb[i] : null, accent());
     });
   }
 
-  function listPanel(title, rows, onPick) {
-    const k = UI.Ease.outCubic(S.enter.k);
-    const x = Math.round(318 + 170 * (1 - k)), y = 32;
-    slant(x, y, 160, 14 + ROWS * ROW_H + 4, '#12082aee', accent());
+  function listPanel(title, rows, onPick, opts) {
+    const k = UI.Ease.outCubic(S.enter.k), port = PT();
+    const o = opts || {};
+    const n = port ? o.rows || 5 : ROWS;
+    const w = port ? VW() - 8 : 160;
+    const x = port ? 4 : Math.round(318 + 170 * (1 - k));
+    const y = port ? o.y || 140 : 32;
+    slant(x, y, w, 14 + n * ROW_H + 4, '#12082aee', accent());
     Font.draw(ctx, title, x + 12, y + 4, accentHi());
-    if (rows.length > ROWS) Font.draw(ctx, S.item + 1 + '/' + rows.length, x + 148, y + 4, '#6a5a88', 1, 'right');
-    for (let vi = 0; vi < ROWS; vi++) {
+    if (rows.length > n) Font.draw(ctx, S.item + 1 + '/' + rows.length, x + w - 12, y + 4, '#6a5a88', 1, 'right');
+    for (let vi = 0; vi < n; vi++) {
       const i = S.scroll + vi, r = rows[i];
       if (!r) break;
       const ry = y + 15 + vi * ROW_H, sel = i === S.item;
-      if (sel) { slant(x + 3, ry, 152, ROW_H - 1, '#3a1a66', '#ffffff', 4); ctx.fillStyle = accent(); ctx.fillRect(x + 6, ry + 3, 2, ROW_H - 7); }
+      if (sel) { slant(x + 3, ry, w - 8, ROW_H - 1, '#3a1a66', '#ffffff', 4); ctx.fillStyle = accent(); ctx.fillRect(x + 6, ry + 3, 2, ROW_H - 7); }
       let tx = x + 12;
       if (r.swatch) { const rp = Custom.ramp(r.swatch); ctx.fillStyle = rp.h; ctx.fillRect(tx, ry + 3, 10, 3); ctx.fillStyle = rp.B; ctx.fillRect(tx, ry + 6, 10, 4); ctx.fillStyle = rp.b; ctx.fillRect(tx, ry + 10, 10, 2); tx += 14; }
       Font.draw(ctx, r.label, tx, ry + 5, sel ? '#ffffff' : '#c9bdff', 1, 'left', null);
-      if (r.installed) UI.icon(ctx, 'check', x + 140, ry + 3, '#6aff5a');
-      else if (r.tag) Font.draw(ctx, r.tag, x + 150, ry + 5, r.tagColor || '#ffc31f', 1, 'right', null);
-      E.button(x, ry, 160, ROW_H, () => { if (S.item !== i) { S.item = i; Audio8.sfx.select(); onPick(i); } });
+      if (r.installed) UI.icon(ctx, 'check', x + w - 20, ry + 3, '#6aff5a');
+      else if (r.tag) Font.draw(ctx, r.tag, x + w - 10, ry + 5, r.tagColor || '#ffc31f', 1, 'right', null);
+      E.button(x, ry, w, ROW_H, () => { if (S.item !== i) { S.item = i; Audio8.sfx.select(); onPick(i); } });
     }
-    if (rows.length > ROWS) {
+    if (rows.length > n) {
       const up = () => { if (S.scroll > 0) { S.scroll--; Audio8.sfx.select(); } };
-      const dn = () => { if (S.scroll + ROWS < rows.length) { S.scroll++; Audio8.sfx.select(); } };
+      const dn = () => { if (S.scroll + n < rows.length) { S.scroll++; Audio8.sfx.select(); } };
+      const ax = x + Math.round(w / 2) - 2;
       ctx.fillStyle = S.scroll > 0 ? '#ffffff' : '#3d2f7a';
-      for (let q = 0; q < 3; q++) ctx.fillRect(x + 78 - q, y + 13 - (2 - q), q * 2 + 1, 1);
-      ctx.fillStyle = S.scroll + ROWS < rows.length ? '#ffffff' : '#3d2f7a';
-      const by = y + 15 + ROWS * ROW_H;
-      for (let q = 0; q < 3; q++) ctx.fillRect(x + 78 - q, by + q, q * 2 + 1, 1);
-      E.button(x + 50, y, 60, 14, up);
-      E.button(x + 50, by - 2, 60, 10, dn);
+      for (let q = 0; q < 3; q++) ctx.fillRect(ax - q, y + 13 - (2 - q), q * 2 + 1, 1);
+      ctx.fillStyle = S.scroll + n < rows.length ? '#ffffff' : '#3d2f7a';
+      const by = y + 15 + n * ROW_H;
+      for (let q = 0; q < 3; q++) ctx.fillRect(ax - q, by + q, q * 2 + 1, 1);
+      E.button(ax - 30, y, 60, 14, up);
+      E.button(ax - 30, by - 2, 60, 10, dn);
     }
-    return { x, y: y + 14 + ROWS * ROW_H + 6 };
+    return { x, y: y + 14 + n * ROW_H + 6, w };
   }
 
   function actionButton(x, y, w, label, color, fn, enabled = true) {
+    w = w || 160;
     const pulse = enabled && Math.floor(S.t * 2.5) % 2 === 0;
     slant(x, y, w, 20, enabled ? '#2a1450f4' : '#1a1030e8', enabled ? (pulse ? '#ffffff' : color) : '#3d2f7a', 6);
     Font.draw(ctx, label, x + w / 2 + 3, y + 7, enabled ? color : '#6a5a88', 1, 'center', null);
@@ -489,7 +543,7 @@
     const life = S.toast.t;
     if (life < 0.3 && Math.floor(life * 20) % 2) return;
     const pop = UI.Ease.outBack(Math.min(1, (2.6 - Math.min(2.6, life)) * 5));
-    Font.draw(ctx, S.toast.text, 240, Math.round(40 - (1 - pop) * 14), S.toast.color, 2, 'center', '#12082a');
+    Font.draw(ctx, S.toast.text, MX(), Math.round((PT() ? 32 : 40) - (1 - pop) * 14), S.toast.color, 2, 'center', '#12082a');
   }
 
   // ---------- screens ----------
@@ -512,14 +566,17 @@
     ctx.globalAlpha = 1;
     ctx.save(); ctx.translate(E.ox, E.oy);
     topBar('ГАРАЖ', 'garage');
-    const k = UI.Ease.outCubic(S.enter.k), py = Math.round(78 - 40 * (1 - k));
-    slant(112, py, 256, 52, '#12082aee', accent(), 8);
-    Font.draw(ctx, 'ГАРАЖ ПОРОЖНІЙ', 240, py + 8, '#ffffff', 2, 'center');
-    Font.draw(ctx, 'ЗАЇДЬ В АВТОСАЛОН І ОБЕРИ ПЕРШУ ТАЧКУ', 240, py + 28, pulse > 0.5 ? accentHi() : '#b9a8e0', 1, 'center');
-    Font.draw(ctx, 'ГОТІВКИ ВИСТАЧИТЬ І НА ПЕРШИЙ ТЮНІНГ', 240, py + 39, '#8a7aa8', 1, 'center');
+    const port = PT(), mx = MX();
+    const k = UI.Ease.outCubic(S.enter.k), py = Math.round((port ? 86 : 78) - 40 * (1 - k));
+    const pw = port ? VW() - 8 : 256, px0 = port ? 4 : 112;
+    slant(px0, py, pw, 52, '#12082aee', accent(), 8);
+    Font.draw(ctx, 'ГАРАЖ ПОРОЖНІЙ', mx, py + 8, '#ffffff', 2, 'center');
+    Font.draw(ctx, port ? 'ЗАЇДЬ В АВТОСАЛОН ЗА ПЕРШОЮ ТАЧКОЮ' : 'ЗАЇДЬ В АВТОСАЛОН І ОБЕРИ ПЕРШУ ТАЧКУ', mx, py + 28, pulse > 0.5 ? accentHi() : '#b9a8e0', 1, 'center');
+    Font.draw(ctx, port ? 'ГОТІВКИ ВИСТАЧИТЬ І НА ТЮНІНГ' : 'ГОТІВКИ ВИСТАЧИТЬ І НА ПЕРШИЙ ТЮНІНГ', mx, py + 39, '#8a7aa8', 1, 'center');
     const cheapest = Math.min(...Catalog.ALL.map((c) => c.price));
-    Font.draw(ctx, MENU[S.menu.sel].id === 'lot' ? 'СТАРТОВІ ТАЧКИ ВІД ' + UI.money(cheapest) : MENU[S.menu.sel].hint, 240, 186, '#d8ccff', 1, 'center');
-    carousel(MENU, S.menu, 200, activateMenu);
+    const hintY = port ? VH() - 92 : 186, carY = port ? VH() - 78 : 200;
+    Font.draw(ctx, MENU[S.menu.sel].id === 'lot' ? 'СТАРТОВІ ТАЧКИ ВІД ' + UI.money(cheapest) : MENU[S.menu.sel].hint, mx, hintY, '#d8ccff', 1, 'center');
+    carousel(MENU, S.menu, carY, activateMenu);
     toastDraw();
     ctx.restore();
     particlesAndFx();
@@ -533,13 +590,16 @@
     ctx.save(); ctx.translate(E.ox, E.oy);
     topBar('ГАРАЖ', 'garage');
     const car = Catalog.byId[id], s = Profile.stats(id, e.up);
+    const port = PT();
     const k = UI.Ease.outCubic(S.enter.k), ix = Math.round(4 - 190 * (1 - k));
-    slant(ix, 34, 168, 34, '#12082ae8', accent());
+    const nameW = port ? VW() - 8 : 168;
+    slant(ix, 34, nameW, 34, '#12082ae8', accent());
     Font.draw(ctx, car.name, ix + 12, 40, '#ffffff', 1);
-    Music.clipText(ctx, car.year + '  ' + (car.desc || 'ТАЧКА ТВОЄЇ БАНДИ'), ix + 12, 52, 150, '#8a7aa8', 1, true, S.t);
-    statPanel(344, 34, s, null);
-    Font.draw(ctx, MENU[S.menu.sel].hint, 240, 186, '#d8ccff', 1, 'center');
-    carousel(MENU, S.menu, 200, activateMenu);
+    Music.clipText(ctx, car.year + '  ' + (car.desc || 'ТАЧКА ТВОЄЇ БАНДИ'), ix + 12, 52, nameW - 18, '#8a7aa8', 1, true, S.t);
+    if (port) statPanel(4, VH() - 176, s, null, VW() - 8);
+    else statPanel(344, 34, s, null);
+    Font.draw(ctx, MENU[S.menu.sel].hint, MX(), port ? VH() - 92 : 186, '#d8ccff', 1, 'center');
+    carousel(MENU, S.menu, port ? VH() - 78 : 200, activateMenu);
     toastDraw();
     ctx.restore();
     particlesAndFx();
@@ -564,21 +624,23 @@
     drawStage(curMap());
     ctx.save(); ctx.translate(E.ox, E.oy);
     topBar('ВІЗУАЛ', 'spray');
-    const lp = listPanel(cat.name, rows, (i) => { S.previewCu = Object.assign({}, e.cu, rows[i].apply); if (rows[i].installed) S.previewCu = null; });
+    const port = PT();
+    const lp = listPanel(cat.name, rows, (i) => { S.previewCu = Object.assign({}, e.cu, rows[i].apply); if (rows[i].installed) S.previewCu = null; }, { y: 140, rows: 6 });
     const r = rows[S.item];
     if (r && !r.installed) {
       const can = Profile.cash >= r.price;
-      actionButton(lp.x, lp.y, 160, (r.price ? 'КУПИТИ ' + UI.money(r.price) : 'ВСТАНОВИТИ'), can ? '#ffc31f' : '#ff5c7a', () => {
+      actionButton(lp.x, lp.y, lp.w, (r.price ? 'КУПИТИ ' + UI.money(r.price) : 'ВСТАНОВИТИ'), can ? '#ffc31f' : '#ff5c7a', () => {
         if (!Profile.spend(r.price)) { Audio8.sfx.invalid(); toast('НЕ ВИСТАЧАЄ ГРОШЕЙ', '#ff5c7a'); return; }
         e.cu = Object.assign({}, e.cu, r.apply); Profile.save(); S.previewCu = null;
         Audio8.sfx.buy(); installFx(cat.cam); toast('ВСТАНОВЛЕНО!', '#9bf08a');
       }, can);
-    } else if (r) actionButton(lp.x, lp.y, 160, 'ВСТАНОВЛЕНО', '#6a5a88', () => {}, false);
+    } else if (r) actionButton(lp.x, lp.y, lp.w, 'ВСТАНОВЛЕНО', '#6a5a88', () => {}, false);
     const k = UI.Ease.outCubic(S.enter.k);
-    slant(Math.round(4 - 150 * (1 - k)), 172, 132, 26, '#12082ae8', '#3d2f7a');
-    Font.draw(ctx, 'ПРИМІРКА', Math.round(14 - 150 * (1 - k)), 176, '#8a7aa8');
-    Font.draw(ctx, r ? r.label : '', Math.round(14 - 150 * (1 - k)), 186, S.previewCu ? '#ffc31f' : '#ffffff');
-    carousel(VISUAL, S.cat, 206, () => {}, pickVisualCat);
+    const fx = Math.round((port ? 4 : 4) - 150 * (1 - k)), fy = port ? lp.y + 26 : 172;
+    slant(fx, fy, port ? VW() - 8 : 132, 26, '#12082ae8', '#3d2f7a');
+    Font.draw(ctx, 'ПРИМІРКА', fx + 10, fy + 4, '#8a7aa8');
+    Font.draw(ctx, r ? r.label : '', fx + 10, fy + 14, S.previewCu ? '#ffc31f' : '#ffffff');
+    carousel(VISUAL, S.cat, port ? VH() - 70 : 206, () => {}, pickVisualCat);
     toastDraw();
     ctx.restore();
     particlesAndFx();
@@ -592,25 +654,27 @@
     drawStage(curMap());
     ctx.save(); ctx.translate(E.ox, E.oy);
     topBar('ТЮНІНГ', 'engine');
+    const port = PT();
     const rows = Catalog.LEVEL_NAMES.map((ln, j) => {
       const installed = e.up[u.id] === j, owned = e.own[u.id] >= j;
       return { label: (j ? 'ПАКЕТ ' : '') + ln, installed, tag: owned ? 'КУПЛЕНО' : UI.money(Profile.upgradeCost(id, u.id, j)), tagColor: owned ? '#9bf08a' : '#ffc31f' };
     });
-    const lp = listPanel(u.name, rows, (j) => { const up = Object.assign({}, e.up); up[u.id] = j; S.previewUp = j === e.up[u.id] ? null : up; });
+    const lp = listPanel(u.name, rows, (j) => { const up = Object.assign({}, e.up); up[u.id] = j; S.previewUp = j === e.up[u.id] ? null : up; }, { y: 218, rows: 5 });
     const s = Profile.stats(id, e.up), ps = S.previewUp ? Profile.stats(id, S.previewUp) : null;
-    statPanel(4, 34, s, ps);
-    Font.draw(ctx, u.desc, Math.round(12 - 150 * (1 - UI.Ease.outCubic(S.enter.k))), 106, accentHi());
+    if (port) statPanel(4, 118, s, ps, VW() - 8);
+    else statPanel(4, 34, s, ps);
+    Font.draw(ctx, u.desc, Math.round(12 - 150 * (1 - UI.Ease.outCubic(S.enter.k))), port ? 206 : 106, accentHi());
     const j = S.item, cost = Profile.upgradeCost(id, u.id, j), owned = e.own[u.id] >= j;
-    if (j === e.up[u.id]) actionButton(lp.x, lp.y, 160, 'ВСТАНОВЛЕНО', '#6a5a88', () => {}, false);
+    if (j === e.up[u.id]) actionButton(lp.x, lp.y, lp.w, 'ВСТАНОВЛЕНО', '#6a5a88', () => {}, false);
     else {
       const can = owned || Profile.cash >= cost;
-      actionButton(lp.x, lp.y, 160, owned ? 'ВСТАНОВИТИ' : 'КУПИТИ ' + UI.money(cost), can ? (owned ? '#9bf08a' : '#ffc31f') : '#ff5c7a', () => {
+      actionButton(lp.x, lp.y, lp.w, owned ? 'ВСТАНОВИТИ' : 'КУПИТИ ' + UI.money(cost), can ? (owned ? '#9bf08a' : '#ffc31f') : '#ff5c7a', () => {
         if (!owned && !Profile.spend(cost)) { Audio8.sfx.invalid(); toast('НЕ ВИСТАЧАЄ ГРОШЕЙ', '#ff5c7a'); return; }
         e.up[u.id] = j; e.own[u.id] = Math.max(e.own[u.id] || 0, j); Profile.save(); S.previewUp = null;
         Audio8.sfx.upgrade(); installFx(PERF_CAM[u.id]); toast('ПАКЕТ ' + Catalog.LEVEL_NAMES[j] + '!', '#9bf08a');
       }, can);
     }
-    carousel(U, S.cat, 206, () => {}, pickPerfCat);
+    carousel(U, S.cat, port ? VH() - 70 : 206, () => {}, pickPerfCat);
     toastDraw();
     ctx.restore();
     particlesAndFx();
@@ -625,42 +689,62 @@
     speedLines();
     ctx.save(); ctx.translate(E.ox, E.oy);
     topBar(mine ? 'МОЇ АВТО' : 'АВТОСАЛОН', mine ? 'garage' : 'key');
-    const k = UI.Ease.outCubic(S.enter.k);
+    const k = UI.Ease.outCubic(S.enter.k), port = PT(), mx = MX();
+    const tabW = port ? Math.floor((VW() - 14) / 4) : 48;
     if (!mine) {
       ERAS.forEach(([era, label], i) => {
-        const x = 142 + i * 50, y = 32, sel = S.era === era;
-        slant(x, y, 48, 15, sel ? '#3a1a66' : '#12082ad0', sel ? accent() : '#3d2f7a', 4);
-        Font.draw(ctx, label, x + 26, y + 4, sel ? '#ffffff' : '#b9a8e0', 1, 'center', null);
-        E.button(x, y, 48, 15, () => { if (S.era !== era && !S.sliding) { Audio8.sfx.select(); setEra(era); } });
+        const x = port ? 4 + i * (tabW + 2) : 142 + i * 50, y = 32, sel = S.era === era;
+        slant(x, y, tabW, 15, sel ? '#3a1a66' : '#12082ad0', sel ? accent() : '#3d2f7a', 4);
+        Font.draw(ctx, label, x + Math.round(tabW / 2) + 2, y + 4, sel ? '#ffffff' : '#b9a8e0', 1, 'center', null);
+        E.button(x, y, tabW, 15, () => { if (S.era !== era && !S.sliding) { Audio8.sfx.select(); setEra(era); } });
       });
-    } else Font.draw(ctx, S.list.length + ' / ' + Catalog.ALL.length + ' У КОЛЕКЦІЇ', 240, 36, '#b9a8e0', 1, 'center');
-    [[-1, 6, 'arrowL'], [1, 448, 'arrowR']].forEach(([dir, x, ic]) => {
+    } else Font.draw(ctx, S.list.length + ' / ' + Catalog.ALL.length + ' У КОЛЕКЦІЇ', mx, 36, '#b9a8e0', 1, 'center');
+    const ay = port ? Math.round(VH() * 0.26) : 94;
+    [[-1, port ? 2 : 6, 'arrowL'], [1, port ? VW() - 28 : 448, 'arrowR']].forEach(([dir, x, ic]) => {
       const nudge = Math.round(Math.sin(S.t * 5) * 1.5) * dir;
-      slant(x + nudge, 94, 26, 34, '#12082ae8', accent(), 5);
-      UI.icon(ctx, ic, x + 8 + nudge, 105, '#ffffff');
-      E.button(x - 6, 84, 40, 54, () => shift(dir));
+      slant(x + nudge, ay, 26, 34, '#12082ae8', accent(), 5);
+      UI.icon(ctx, ic, x + 8 + nudge, ay + 11, '#ffffff');
+      E.button(x - 6, ay - 10, 40, 54, () => shift(dir));
     });
-    const py = Math.round(170 + 110 * (1 - k));
-    slant(8, py, 470, 94, '#12082aee', accent(), 10);
-    Font.draw(ctx, car.name, 24, py + 8, '#ffffff', 2);
-    Font.draw(ctx, car.year + '   ' + (car.desc || ''), 22, py + 27, '#b9a8e0');
-    const s = owned ? Profile.stats(id, Profile.entry(id).up) : Profile.stats(id);
-    const b = Profile.bars(s);
+    const pw = port ? VW() - 8 : 470, px0 = port ? 4 : 8, ph = port ? 132 : 94;
+    const py = Math.round((port ? VH() - ph - 8 : 170) + 110 * (1 - k));
+    slant(px0, py, pw, ph, '#12082aee', accent(), 10);
+    // the price shares the name's line, so the name gets only what the price leaves it
+    const tagTxt = owned ? 'У ГАРАЖІ' : UI.money(car.price);
+    const nameW = port ? px0 + pw - 14 - Font.measure(tagTxt, 2) - (px0 + 16) - 8 : 300;
+    if (port) Music.clipText(ctx, car.name, px0 + 16, py + 8, nameW, '#ffffff', 2, false, S.t);
+    else Font.draw(ctx, car.name, px0 + 16, py + 8, '#ffffff', 2);
+    Music.clipText(ctx, car.year + '   ' + (car.desc || ''), px0 + 14, py + 27, port ? pw - 28 : 300, '#b9a8e0', 1, false, S.t);
+    const st = owned ? Profile.stats(id, Profile.entry(id).up) : Profile.stats(id);
+    const b = Profile.bars(st);
     STAT_NAMES.forEach((n, i) => {
-      const x = 22 + (i % 2) * 150, y = py + 44 + Math.floor(i / 2) * 13;
-      Font.draw(ctx, n, x, y, '#8a7aa8');
-      UI.bar(ctx, x + 62, y + 1, 72, b[i], null, accent());
+      if (port) {
+        const y = py + 44 + i * 12;
+        Font.draw(ctx, n, px0 + 14, y, '#8a7aa8');
+        UI.bar(ctx, px0 + 76, y + 1, pw - 100, b[i], null, accent());
+      } else {
+        const x = 22 + (i % 2) * 150, y = py + 44 + Math.floor(i / 2) * 13;
+        Font.draw(ctx, n, x, y, '#8a7aa8');
+        UI.bar(ctx, x + 62, y + 1, 72, b[i], null, accent());
+      }
     });
-    Font.draw(ctx, 'РЕЙТИНГ ' + Profile.rating(s), 458, py + 30, '#c9bdff', 1, 'right');
-    Font.draw(ctx, S.idx + 1 + ' / ' + S.list.length, 458, py + 44, '#6a5a88', 1, 'right');
-    if (owned) Font.draw(ctx, 'У ГАРАЖІ', 458, py + 8, '#9bf08a', 2, 'right');
-    else Font.draw(ctx, UI.money(car.price), 458, py + 8, Profile.cash >= car.price ? '#ffc31f' : '#ff5c7a', 2, 'right');
-    const bx = 336, by = py + 64;
+    const rx = px0 + pw - 14;
+    if (port) {
+      Font.draw(ctx, 'РЕЙТИНГ ' + Profile.rating(st), px0 + 14, py + 96, '#c9bdff', 1, 'left');
+      Font.draw(ctx, S.idx + 1 + ' / ' + S.list.length, px0 + 14, py + 108, '#6a5a88', 1, 'left');
+      Font.draw(ctx, tagTxt, rx, py + 8, owned ? '#9bf08a' : Profile.cash >= car.price ? '#ffc31f' : '#ff5c7a', 2, 'right');
+    } else {
+      Font.draw(ctx, 'РЕЙТИНГ ' + Profile.rating(st), 458, py + 30, '#c9bdff', 1, 'right');
+      Font.draw(ctx, S.idx + 1 + ' / ' + S.list.length, 458, py + 44, '#6a5a88', 1, 'right');
+      if (owned) Font.draw(ctx, 'У ГАРАЖІ', 458, py + 8, '#9bf08a', 2, 'right');
+      else Font.draw(ctx, UI.money(car.price), 458, py + 8, Profile.cash >= car.price ? '#ffc31f' : '#ff5c7a', 2, 'right');
+    }
+    const bw = port ? 136 : 124, bx = port ? px0 + pw - bw - 10 : 336, by = py + (port ? 98 : 64);
     if (owned) {
-      if (Profile.data.current === id) actionButton(bx, by, 124, 'ТВОЯ ТАЧКА', '#6a5a88', () => {}, false);
-      else actionButton(bx, by, 124, 'СІСТИ ЗА КЕРМО', '#9bf08a', () => { Profile.select(id); Audio8.sfx.buy(); toast('ТАЧКУ ОБРАНО!', '#9bf08a'); installFx('full'); });
-    } else if (Profile.cash < car.price) actionButton(bx, by, 124, 'НЕ ВИСТАЧАЄ', '#ff5c7a', () => {}, false);
-    else actionButton(bx, by, 124, S.confirm ? 'ПІДТВЕРДИТИ?' : 'КУПИТИ', '#ffc31f', () => {
+      if (Profile.data.current === id) actionButton(bx, by, bw, 'ТВОЯ ТАЧКА', '#6a5a88', () => {}, false);
+      else actionButton(bx, by, bw, 'СІСТИ ЗА КЕРМО', '#9bf08a', () => { Profile.select(id); Audio8.sfx.buy(); toast('ТАЧКУ ОБРАНО!', '#9bf08a'); installFx('full'); });
+    } else if (Profile.cash < car.price) actionButton(bx, by, bw, 'НЕ ВИСТАЧАЄ', '#ff5c7a', () => {}, false);
+    else actionButton(bx, by, bw, S.confirm ? 'ПІДТВЕРДИТИ?' : 'КУПИТИ', '#ffc31f', () => {
       if (!S.confirm) { S.confirm = true; Audio8.sfx.select(); return; }
       if (Profile.buy(id) === 'ok') {
         S.confirm = false; S.cash.v = Profile.cash + car.price; UI.tween(S.cash, { v: Profile.cash }, 0.9, 'outCubic');
@@ -681,75 +765,105 @@
     if (dim) { ctx.globalAlpha = 0.55; ctx.fillStyle = '#05030c'; ctx.fillRect(x, y, w, h); ctx.globalAlpha = 1; }
   }
 
+  // The rival card and the ranking cannot sit side by side on a phone held upright, so the
+  // card takes the top of the screen, the challenge button sits under it and the ranking
+  // fills whatever is left.
+  function careerCard(r, x, y, w, h, t, k) {
+    const st = Profile.careerState(r), her = r.portrait.fem ? 'ЇЇ' : 'ЙОГО';
+    slant(x, y, w, h, '#12082aee', st === 'beaten' ? '#6aff5a' : accent(), 8);
+    framePortrait(r, x + 16, y + 10, 2, st === 'level' || st === 'prev');
+    const port = PT();
+    Font.draw(ctx, '#' + r.rank, x + w - 14, y + 8, '#ffc31f', 3, 'right', '#12082a');
+    // portrait puts the rank on its own line: a long nick and a big number share no room
+    const tx = x + 108, tw = w - 122;
+    if (port) Music.clipText(ctx, r.nick, tx, y + 30, tw, '#ffffff', 2, false, t);
+    else Font.draw(ctx, r.nick, tx, y + 12, '#ffffff', 2, 'left', '#12082a');
+    Font.draw(ctx, r.name, tx, y + (port ? 50 : 30), accentHi(), 1, 'left', null);
+    const map = Custom.build(r.car);
+    Voxel3D.render(ctx, map, { cx: x + (port ? w - 60 : 196), cy: y + (port ? 94 : 72), zoom: port ? 1.7 : 2, yaw: t * 0.9 + 0.6, pitch: 0.32 });
+    Music.clipText(ctx, her + ' ТАЧКА: ' + r.car.name, tx, y + (port ? 64 : 96), port ? tw : 176, '#d8ccff', 1, false, t);
+    if (!port) r.story.forEach((line, j) => Font.draw(ctx, line, x + 16, y + 116 + j * 10, '#b9a8e0', 1, 'left', null));
+    const cur = Profile.data.current, e = cur ? Profile.entry(cur) : null;
+    const myR = cur ? Profile.rating(Profile.stats(cur, e.up)) : 0;
+    const needR = Math.round((r.need - 90) * 5), bossR = Profile.rating(Profile.stats(r.car.id, r.bossUp));
+    const yb = y + (port ? 118 : 152), col2 = port ? x + Math.round(w * 0.52) : x + 156;
+    const val = port ? x + Math.round(w * 0.48) : x + 140;
+    Font.draw(ctx, her + ' РЕЙТИНГ', x + 16, yb, '#8a7aa8', 1, 'left', null);
+    Font.draw(ctx, String(bossR), val, yb, '#ffffff', 1, 'right', null);
+    Font.draw(ctx, 'ПОТРІБНО', x + 16, yb + 11, '#8a7aa8', 1, 'left', null);
+    Font.draw(ctx, String(needR), val, yb + 11, '#ffc31f', 1, 'right', null);
+    Font.draw(ctx, 'ТВІЙ', x + 16, yb + 22, '#8a7aa8', 1, 'left', null);
+    Font.draw(ctx, cur ? String(myR) : '-', val, yb + 22, myR >= needR ? '#6aff5a' : '#ff5c7a', 1, 'right', null);
+    const okCar = Profile.carOk(r);
+    Font.draw(ctx, 'СТАВКА', col2, yb, '#8a7aa8', 1, 'left', null);
+    Font.draw(ctx, r.carReq ? 'ТАЧКА ВІД ' + UI.money(r.carReq) : 'БУДЬ-ЯКА ТАЧКА', col2, yb + 11, okCar ? '#6aff5a' : '#ff5c7a', 1, 'left', null);
+    Font.draw(ctx, 'ПРИЗ: ' + UI.money(r.car.price), col2, yb + 22, '#9bf08a', 1, 'left', null);
+    return { st, okCar, myR, needR };
+  }
+
+  function careerChallenge(r, info, x, y, w) {
+    const { st, okCar } = info;
+    if (st === 'beaten') actionButton(x, y, w, 'ПЕРЕМОЖЕНО', '#6aff5a', () => {}, false);
+    else if (st === 'prev') actionButton(x, y, w, 'СПЕРШУ #' + (r.rank + 1), '#6a5a88', () => {}, false);
+    else if (st === 'level') actionButton(x, y, w, 'З РІВНЯ ' + r.gate, '#6a5a88', () => {}, false);
+    else if (!okCar) actionButton(x, y, w, 'ТАЧКА ЗАДЕШЕВА', '#ff5c7a', () => { Audio8.sfx.invalid(); toast('ПОТРІБНА ТАЧКА ВІД ' + UI.money(r.carReq), '#ff5c7a'); }, true);
+    else actionButton(x, y, w, 'ВИКЛИК!', '#ffc31f', () => { Audio8.sfx.click(); UI.transition('shutter', () => S.onCareer && S.onCareer(r), r.nick + ' VS ТИ'); });
+  }
+
+  function careerList2(list, x, y, w, h, t) {
+    const n = careerRows();
+    slant(x, y, w, h, '#12082aee', accent(), 8);
+    for (let vi = 0; vi < n; vi++) {
+      const idx = S.scroll + vi, r = list[idx];
+      if (!r) break;
+      const ry = y + 5 + vi * CL_H, sel = idx === S.item, st = Profile.careerState(r);
+      if (sel) slant(x + 4, ry, w - 10, CL_H - 2, '#3a1a66', '#ffffff', 5);
+      ctx.fillStyle = '#05030c'; ctx.fillRect(x + 11, ry, 26, 26);
+      ctx.drawImage(Portraits.build(r.portrait), 8, 6, 24, 24, x + 12, ry + 1, 24, 24);
+      if (st === 'level' || st === 'prev') { ctx.globalAlpha = 0.6; ctx.fillStyle = '#05030c'; ctx.fillRect(x + 12, ry + 1, 24, 24); ctx.globalAlpha = 1; }
+      Font.draw(ctx, '#' + r.rank, x + 42, ry + 4, st === 'beaten' ? '#6aff5a' : sel ? '#ffc31f' : '#b9a8e0', 1, 'left', null);
+      Font.draw(ctx, r.nick, x + 42, ry + 14, sel || st === 'open' ? '#ffffff' : '#8a7aa8', 1, 'left', null);
+      const ix = x + w - 24;
+      if (st === 'beaten') UI.icon(ctx, 'check', ix, ry + 7, '#6aff5a');
+      else if (st !== 'open') UI.icon(ctx, 'lock', ix, ry + 7, '#6a5a88');
+      else UI.icon(ctx, 'crown', ix, ry + 7 - (Math.floor(t * 4) % 2), '#ffc31f');
+      E.button(x, ry, w, CL_H, () => { if (S.item !== idx) { S.item = idx; Audio8.sfx.select(); } });
+    }
+    const ax = x + Math.round(w / 2);
+    const up = () => { if (S.scroll > 0) { S.scroll--; Audio8.sfx.select(); } };
+    const dn = () => { if (S.scroll + n < list.length) { S.scroll++; Audio8.sfx.select(); } };
+    ctx.fillStyle = S.scroll > 0 ? '#ffffff' : '#3d2f7a';
+    for (let q = 0; q < 3; q++) ctx.fillRect(ax - q, y + 2 - (2 - q), q * 2 + 1, 1);
+    ctx.fillStyle = S.scroll + n < list.length ? '#ffffff' : '#3d2f7a';
+    for (let q = 0; q < 3; q++) ctx.fillRect(ax - q, y + h - 5 + q, q * 2 + 1, 1);
+    E.button(ax - 30, y - 4, 60, 12, up);
+    E.button(ax - 30, y + h - 8, 60, 12, dn);
+  }
+
   function drawCareer() {
     drawBg(true);
     ctx.globalAlpha = 0.5; ctx.fillStyle = '#05030c'; ctx.fillRect(0, 0, E.vw, E.vh); ctx.globalAlpha = 1;
     ctx.save(); ctx.translate(E.ox, E.oy);
     topBar('ЧОРНИЙ СПИСОК', 'crown');
     const list = careerList(), k = UI.Ease.outCubic(S.enter.k), t = S.t;
-    // ranking column
-    const lx = Math.round(4 - 190 * (1 - k)), ly = 32;
-    slant(lx, ly, 176, 234, '#12082aee', accent(), 8);
-    for (let vi = 0; vi < CL_ROWS; vi++) {
-      const idx = S.scroll + vi, r = list[idx];
-      if (!r) break;
-      const ry = ly + 5 + vi * CL_H, sel = idx === S.item, st = Profile.careerState(r);
-      if (sel) slant(lx + 4, ry, 166, CL_H - 2, '#3a1a66', '#ffffff', 5);
-      ctx.fillStyle = '#05030c'; ctx.fillRect(lx + 11, ry, 26, 26);
-      ctx.drawImage(Portraits.build(r.portrait), 8, 6, 24, 24, lx + 12, ry + 1, 24, 24);
-      if (st === 'level' || st === 'prev') { ctx.globalAlpha = 0.6; ctx.fillStyle = '#05030c'; ctx.fillRect(lx + 12, ry + 1, 24, 24); ctx.globalAlpha = 1; }
-      Font.draw(ctx, '#' + r.rank, lx + 42, ry + 4, st === 'beaten' ? '#6aff5a' : sel ? '#ffc31f' : '#b9a8e0', 1, 'left', null);
-      Font.draw(ctx, r.nick, lx + 42, ry + 14, sel || st === 'open' ? '#ffffff' : '#8a7aa8', 1, 'left', null);
-      if (st === 'beaten') UI.icon(ctx, 'check', lx + 152, ry + 7, '#6aff5a');
-      else if (st !== 'open') UI.icon(ctx, 'lock', lx + 152, ry + 7, '#6a5a88');
-      else UI.icon(ctx, 'crown', lx + 152, ry + 7 - (Math.floor(t * 4) % 2), '#ffc31f');
-      E.button(lx, ry, 176, CL_H, () => { if (S.item !== idx) { S.item = idx; Audio8.sfx.select(); } });
+    const r = list[S.item];
+    if (PT()) {
+      const w = VW() - 8, cy = Math.round(32 - 40 * (1 - k));
+      const info = careerCard(r, 4, cy, w, 180, t, k);
+      careerChallenge(r, info, 4, 218, w);
+      careerList2(list, 4, 244, w, VH() - 254, t);
+      if (info.st === 'open' && info.okCar && info.myR < info.needR) Font.draw(ctx, 'ПРОКАЧАЙ ТАЧКУ', MX(), 202, '#ff7cc6', 1, 'center');
+      toastDraw();
+      ctx.restore();
+      particlesAndFx();
+      return;
     }
-    const up = () => { if (S.scroll > 0) { S.scroll--; Audio8.sfx.select(); } };
-    const dn = () => { if (S.scroll + CL_ROWS < list.length) { S.scroll++; Audio8.sfx.select(); } };
-    ctx.fillStyle = S.scroll > 0 ? '#ffffff' : '#3d2f7a';
-    for (let q = 0; q < 3; q++) ctx.fillRect(lx + 90 - q, ly + 3 - (2 - q) + 1, q * 2 + 1, 1);
-    ctx.fillStyle = S.scroll + CL_ROWS < list.length ? '#ffffff' : '#3d2f7a';
-    for (let q = 0; q < 3; q++) ctx.fillRect(lx + 90 - q, ly + 229 + q, q * 2 + 1, 1);
-    E.button(lx + 60, ly - 4, 60, 12, up);
-    E.button(lx + 60, ly + 224, 60, 12, dn);
-
-    // rival card
-    const r = list[S.item], st = Profile.careerState(r), her = r.portrait.fem ? 'ЇЇ' : 'ЙОГО';
+    const lx = Math.round(4 - 190 * (1 - k)), ly = 32;
+    careerList2(list, lx, ly, 176, 234, t);
     const cx0 = Math.round(184 + 300 * (1 - k)), cy0 = 32;
-    slant(cx0, cy0, 292, 234, '#12082aee', st === 'beaten' ? '#6aff5a' : accent(), 8);
-    framePortrait(r, cx0 + 16, cy0 + 10, 2, st === 'level' || st === 'prev');
-    Font.draw(ctx, '#' + r.rank, cx0 + 278, cy0 + 8, '#ffc31f', 3, 'right', '#12082a');
-    Font.draw(ctx, r.nick, cx0 + 108, cy0 + 12, '#ffffff', 2, 'left', '#12082a');
-    Font.draw(ctx, r.name, cx0 + 108, cy0 + 30, accentHi(), 1, 'left', null);
-    // pink slip car on a small turntable
-    const map = Custom.build(r.car);
-    Voxel3D.render(ctx, map, { cx: cx0 + 196, cy: cy0 + 72, zoom: 2, yaw: t * 0.9 + 0.6, pitch: 0.32 });
-    Font.draw(ctx, her + ' ТАЧКА: ' + r.car.name, cx0 + 108, cy0 + 96, '#d8ccff', 1, 'left', null);
-    r.story.forEach((line, j) => Font.draw(ctx, line, cx0 + 16, cy0 + 116 + j * 10, '#b9a8e0', 1, 'left', null));
-    // numbers the player needs to see
-    const cur = Profile.data.current, e = cur ? Profile.entry(cur) : null;
-    const myR = cur ? Profile.rating(Profile.stats(cur, e.up)) : 0;
-    const needR = Math.round((r.need - 90) * 5), bossR = Profile.rating(Profile.stats(r.car.id, r.bossUp));
-    const yb = cy0 + 152;
-    Font.draw(ctx, her + ' РЕЙТИНГ', cx0 + 16, yb, '#8a7aa8', 1, 'left', null);
-    Font.draw(ctx, String(bossR), cx0 + 140, yb, '#ffffff', 1, 'right', null);
-    Font.draw(ctx, 'ПОТРІБНО', cx0 + 16, yb + 11, '#8a7aa8', 1, 'left', null);
-    Font.draw(ctx, String(needR), cx0 + 140, yb + 11, '#ffc31f', 1, 'right', null);
-    Font.draw(ctx, 'ТВІЙ', cx0 + 16, yb + 22, '#8a7aa8', 1, 'left', null);
-    Font.draw(ctx, cur ? String(myR) : '-', cx0 + 140, yb + 22, myR >= needR ? '#6aff5a' : '#ff5c7a', 1, 'right', null);
-    const okCar = Profile.carOk(r);
-    Font.draw(ctx, 'СТАВКА', cx0 + 156, yb, '#8a7aa8', 1, 'left', null);
-    Font.draw(ctx, r.carReq ? 'ТАЧКА ВІД ' + UI.money(r.carReq) : 'БУДЬ-ЯКА ТАЧКА', cx0 + 156, yb + 11, okCar ? '#6aff5a' : '#ff5c7a', 1, 'left', null);
-    Font.draw(ctx, 'ПРИЗ: ' + UI.money(r.car.price), cx0 + 156, yb + 22, '#9bf08a', 1, 'left', null);
-    // challenge
-    const bx = cx0 + 140, by = cy0 + 206;
-    if (st === 'beaten') actionButton(bx, by, 140, 'ПЕРЕМОЖЕНО', '#6aff5a', () => {}, false);
-    else if (st === 'prev') actionButton(bx, by, 140, 'СПЕРШУ #' + (r.rank + 1), '#6a5a88', () => {}, false);
-    else if (st === 'level') actionButton(bx, by, 140, 'З РІВНЯ ' + r.gate, '#6a5a88', () => {}, false);
-    else if (!okCar) actionButton(bx, by, 140, 'ТАЧКА ЗАДЕШЕВА', '#ff5c7a', () => { Audio8.sfx.invalid(); toast('ПОТРІБНА ТАЧКА ВІД ' + UI.money(r.carReq), '#ff5c7a'); }, true);
-    else actionButton(bx, by, 140, 'ВИКЛИК!', '#ffc31f', () => { Audio8.sfx.click(); UI.transition('shutter', () => S.onCareer && S.onCareer(r), r.nick + ' VS ТИ'); });
-    if (st === 'open' && okCar && myR < needR) Font.draw(ctx, 'ПРОКАЧАЙ ТАЧКУ', cx0 + 16, by + 7, '#ff7cc6', 1, 'left', null);
+    const info = careerCard(r, cx0, cy0, 292, 234, t, k);
+    careerChallenge(r, info, cx0 + 140, cy0 + 206, 140);
+    if (info.st === 'open' && info.okCar && info.myR < info.needR) Font.draw(ctx, 'ПРОКАЧАЙ ТАЧКУ', cx0 + 16, cy0 + 213, '#ff7cc6', 1, 'left', null);
     toastDraw();
     ctx.restore();
     particlesAndFx();
@@ -759,7 +873,7 @@
   const fmtTime = (s) => (isFinite(s) && s > 0 ? Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') : '0:00');
   const CTX_LABEL = { menu: 'МЕНЮ', race: 'ГОНКИ', both: 'ВСЮДИ', off: 'ВИМК' };
   const CTX_COLOR = { menu: '#29e0d0', race: '#ff5c7a', both: '#ffc31f', off: '#6a5a88' };
-  const JB_ROWS = 6;
+  // how many track rows fit is worked out by jukeRows()
 
   function drawJukebox() {
     drawBg(false);
@@ -768,58 +882,72 @@
     topBar('ПЛЕЄР', 'note');
     const M = window.Music;
     if (!M) { ctx.restore(); return; }
-    const list = M.tracks, cur = M.current(), t = S.t;
-    const k = UI.Ease.outCubic(S.enter.k);
-    const px = Math.round(8 - 490 * (1 - k));
-    slant(px, 32, 464, 152, '#12082aee', accent(), 8);
+    const list = M.tracks, cur = M.current(), t = S.t, port = PT();
+    const k = UI.Ease.outCubic(S.enter.k), n = jukeRows();
+    const pw = port ? VW() - 8 : 464;
+    const px = Math.round((port ? 4 : 8) - (pw + 26) * (1 - k));
+    const lh = 14 + n * 22 + 4;
+    const deckH = port ? 110 : 76;
+    const by = Math.round((port ? VH() - deckH - 6 : 188) + 100 * (1 - k));
+    // the tag column is what gets squeezed first, then the title
+    const tagW = port ? 52 : 60, tagX = px + pw - tagW - 10;
+    const timeX = port ? 0 : px + 386;
+    slant(px, 32, pw, lh, '#12082aee', accent(), 8);
     Font.draw(ctx, 'ТРЕК / ВИКОНАВЕЦЬ', px + 58, 36, '#8a7aa8');
-    Font.draw(ctx, 'ДЕ ГРАЄ', px + 452, 36, '#8a7aa8', 1, 'right');
-    for (let vi = 0; vi < JB_ROWS; vi++) {
+    Font.draw(ctx, port ? 'ДЕ' : 'ДЕ ГРАЄ', px + pw - 12, 36, '#8a7aa8', 1, 'right');
+    for (let vi = 0; vi < n; vi++) {
       const i = S.scroll + vi, tr = list[i];
       if (!tr) break;
       const ry = 47 + vi * 22, sel = i === S.item, playing = cur === tr;
-      if (sel) slant(px + 8, ry, 448, 21, '#3a1a66', '#ffffff', 5);
+      if (sel) slant(px + 8, ry, pw - 16, 21, '#3a1a66', '#ffffff', 5);
       if (playing) { ctx.fillStyle = accent(); ctx.fillRect(px + 12, ry + 3, 2, 15); }
       if (playing) M.eq(ctx, px + 16, ry + 7, accentHi(), t, 3, 7);
       else UI.icon(ctx, 'play', px + 15, ry + 5, '#6a5a88');
       ctx.drawImage(M.cover(tr, 16), px + 34, ry + 3);
-      M.clipText(ctx, tr.title, px + 56, ry + 3, 300, playing ? accentHi() : '#ffffff', 1, sel, t);
-      M.clipText(ctx, tr.artist + '  -  ' + tr.album, px + 56, ry + 12, 300, '#8a7aa8', 1, sel, t);
-      Font.draw(ctx, fmtTime(tr.dur), px + 386, ry + 3, '#6a5a88', 1, 'right', null);
+      const tw = tagX - (px + 56) - 8;
+      M.clipText(ctx, tr.title, px + 56, ry + 3, tw, playing ? accentHi() : '#ffffff', 1, sel, t);
+      M.clipText(ctx, tr.artist + '  -  ' + tr.album, px + 56, ry + 12, tw, '#8a7aa8', 1, sel, t);
+      if (timeX) Font.draw(ctx, fmtTime(tr.dur), timeX, ry + 3, '#6a5a88', 1, 'right', null);
       const a = M.assign(tr.id);
-      slant(px + 392, ry + 4, 60, 13, '#12082a', CTX_COLOR[a], 3);
-      Font.draw(ctx, CTX_LABEL[a], px + 423, ry + 7, CTX_COLOR[a], 1, 'center', null);
-      E.button(px + 390, ry, 66, 21, () => { M.cycleAssign(tr.id); Audio8.sfx.select(); });
-      E.button(px, ry, 388, 21, () => { S.item = i; if (playing) M.toggle(); else M.play(tr.id); Audio8.sfx.click(); });
+      slant(tagX, ry + 4, tagW, 13, '#12082a', CTX_COLOR[a], 3);
+      Font.draw(ctx, CTX_LABEL[a], tagX + Math.round(tagW / 2) + 1, ry + 7, CTX_COLOR[a], 1, 'center', null);
+      E.button(tagX - 2, ry, tagW + 8, 21, () => { M.cycleAssign(tr.id); Audio8.sfx.select(); });
+      E.button(px, ry, tagX - px - 4, 21, () => { S.item = i; if (playing) M.toggle(); else M.play(tr.id); Audio8.sfx.click(); });
     }
-    if (list.length > JB_ROWS) {
-      const canUp = S.scroll > 0, canDn = S.scroll + JB_ROWS < list.length;
+    if (list.length > n) {
+      const canUp = S.scroll > 0, canDn = S.scroll + n < list.length;
+      const ax = px + Math.round(pw / 2);
       ctx.fillStyle = canUp ? '#ffffff' : '#3d2f7a';
-      for (let q = 0; q < 3; q++) ctx.fillRect(px + 240 - q, 38 + q, q * 2 + 1, 1);
+      for (let q = 0; q < 3; q++) ctx.fillRect(ax - q, 38 + q, q * 2 + 1, 1);
       ctx.fillStyle = canDn ? '#ffffff' : '#3d2f7a';
-      for (let q = 0; q < 3; q++) ctx.fillRect(px + 240 - q, 181 - q, q * 2 + 1, 1);
-      E.button(px + 200, 32, 80, 14, () => { if (canUp) { S.scroll--; Audio8.sfx.select(); } });
-      E.button(px + 200, 176, 80, 10, () => { if (canDn) { S.scroll++; Audio8.sfx.select(); } });
+      for (let q = 0; q < 3; q++) ctx.fillRect(ax - q, 32 + lh - 7 - q, q * 2 + 1, 1);
+      E.button(ax - 40, 32, 80, 14, () => { if (canUp) { S.scroll--; Audio8.sfx.select(); } });
+      E.button(ax - 40, 32 + lh - 10, 80, 10, () => { if (canDn) { S.scroll++; Audio8.sfx.select(); } });
     }
-    const by = Math.round(188 + 100 * (1 - k));
-    slant(8, by, 464, 76, '#12082af4', accent(), 8);
+    const dx = port ? 4 : 8, dw = port ? VW() - 8 : 464;
+    slant(dx, by, dw, deckH, '#12082af4', accent(), 8);
     if (cur) {
-      ctx.drawImage(M.cover(cur, 56), 22, by + 10);
-      M.clipText(ctx, cur.title, 88, by + 8, 262, '#ffffff', 2, true, t);
-      M.clipText(ctx, cur.artist, 88, by + 27, 262, accentHi(), 1, true, t);
-      M.clipText(ctx, cur.album + '  /  ' + cur.genre + '  /  ' + cur.year, 88, by + 37, 262, '#8a7aa8', 1, true, t);
+      const cs = port ? 40 : 56, tx = dx + 14 + cs + 8;
+      ctx.drawImage(M.cover(cur, cs), dx + 14, by + 10);
+      const tw = dx + dw - tx - (port ? 14 : 114);
+      M.clipText(ctx, cur.title, tx, by + 8, tw, '#ffffff', 2, true, t);
+      M.clipText(ctx, cur.artist, tx, by + 27, tw, accentHi(), 1, true, t);
+      M.clipText(ctx, cur.album + '  /  ' + cur.genre + '  /  ' + cur.year, tx, by + 37, tw, '#8a7aa8', 1, true, t);
       const p = M.progress(), f = p.d ? Math.min(1, p.t / p.d) : 0;
-      ctx.fillStyle = '#2a1d4a'; ctx.fillRect(88, by + 51, 262, 3);
-      ctx.fillStyle = accent(); ctx.fillRect(88, by + 51, Math.round(262 * f), 3);
-      ctx.fillStyle = '#ffffff'; ctx.fillRect(88 + Math.round(262 * f), by + 49, 1, 7);
-      Font.draw(ctx, fmtTime(p.t) + ' / ' + fmtTime(p.d), 88, by + 60, '#b9a8e0');
-      Font.draw(ctx, 'ЧЕРГА: ' + (M.context() === 'race' ? 'ГОНКИ' : 'МЕНЮ'), 350, by + 60, '#6a5a88', 1, 'right');
-      M.eq(ctx, 440, by + 8, accent(), t, 6, 12);
-    } else Font.draw(ctx, 'ТИША В ЕФІРІ', 240, by + 32, '#6a5a88', 2, 'center');
-    [['prev', 364, () => M.prev()], [M.isPaused() ? 'play' : 'pause', 396, () => M.toggle()], ['next', 428, () => M.next()]].forEach(([ic, x, fn]) => {
-      slant(x - 4, by + 26, 30, 28, '#1f0c3e', ic === 'play' || ic === 'pause' ? accent() : '#3d2f7a', 5);
-      UI.icon(ctx, ic, x + 1, by + 34, ic === 'play' || ic === 'pause' ? accentHi() : '#ffffff');
-      E.button(x - 4, by + 26, 30, 28, () => { fn(); Audio8.sfx.select(); });
+      const bx0 = port ? dx + 14 : 88, bw0 = port ? dw - 28 : 262, by0 = by + (port ? 56 : 51);
+      ctx.fillStyle = '#2a1d4a'; ctx.fillRect(bx0, by0, bw0, 3);
+      ctx.fillStyle = accent(); ctx.fillRect(bx0, by0, Math.round(bw0 * f), 3);
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(bx0 + Math.round(bw0 * f), by0 - 2, 1, 7);
+      Font.draw(ctx, fmtTime(p.t) + ' / ' + fmtTime(p.d), bx0, by0 + 9, '#b9a8e0');
+      Font.draw(ctx, 'ЧЕРГА: ' + (M.context() === 'race' ? 'ГОНКИ' : 'МЕНЮ'), bx0 + bw0, by0 + 9, '#6a5a88', 1, 'right');
+      if (!port) M.eq(ctx, 440, by + 8, accent(), t, 6, 12);
+    } else Font.draw(ctx, 'ТИША В ЕФІРІ', MX(), by + Math.round(deckH / 2) - 7, '#6a5a88', 2, 'center');
+    const tcx = port ? MX() - 48 : 364, tcy = by + (port ? deckH - 32 : 26);
+    [['prev', 0, () => M.prev()], [M.isPaused() ? 'play' : 'pause', 32, () => M.toggle()], ['next', 64, () => M.next()]].forEach(([ic, off, fn]) => {
+      const x = tcx + off;
+      slant(x - 4, tcy, 30, 28, '#1f0c3e', ic === 'play' || ic === 'pause' ? accent() : '#3d2f7a', 5);
+      UI.icon(ctx, ic, x + 1, tcy + 8, ic === 'play' || ic === 'pause' ? accentHi() : '#ffffff');
+      E.button(x - 4, tcy, 30, 28, () => { fn(); Audio8.sfx.select(); });
     });
     ctx.restore();
   }
@@ -835,9 +963,17 @@
   }
 
   // ---------- input ----------
+  // the patch of screen the turntable owns: spinning the car must never start on a panel
+  function stageBox() {
+    const vis = S.screen === 'visual' || S.screen === 'perf';
+    if (PT()) return { y0: 30, y1: vis ? 132 : inLot() ? VH() - 148 : VH() - 184, x0: 0, x1: VW() };
+    return { y0: 28, y1: 196, x0: vis ? 140 : 0, x1: vis ? 316 : 480 };
+  }
+
   function pointerDown(q) {
     if (S.screen === 'jukebox' || S.screen === 'career') return;
-    if (q.y > 28 && q.y < 196 && !(S.screen === 'visual' || S.screen === 'perf') || (q.y > 28 && q.y < 196 && q.x < 316 && q.x > 140))
+    const b = stageBox();
+    if (q.y > b.y0 && q.y < b.y1 && q.x >= b.x0 && q.x < b.x1)
       S.orbit = { x: q.x, y: q.y, yaw: S.cam.yaw, pitch: S.cam.pitch, moved: false };
   }
   function pointerMove(q) {
@@ -866,7 +1002,7 @@
       if (code === 'ArrowDown' || code === 'ArrowUp') {
         S.item = Math.max(0, Math.min(n - 1, S.item + (code === 'ArrowDown' ? 1 : -1)));
         if (S.item < S.scroll) S.scroll = S.item;
-        if (S.item >= S.scroll + CL_ROWS) S.scroll = S.item - CL_ROWS + 1;
+        if (S.item >= S.scroll + careerRows()) S.scroll = S.item - careerRows() + 1;
         Audio8.sfx.select();
       }
       const r = careerList()[S.item];
