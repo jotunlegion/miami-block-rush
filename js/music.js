@@ -4,12 +4,20 @@
   // cover: a/b gradient, f fg, h highlight, x dark, m motif
   const TRACKS = [
     // ---- menu / garage ----
+    // The house band's theme. Whatever the rotation has reached, the menu opens on this one
+    // every time the game is loaded - see take() below.
+    { id: 'theme', file: 'Miami Block Rush.mp3', ctx: 'menu', dur: 161, theme: true, artist: 'DJ NIGHT SHIFT', title: 'MIAMI BLOCK RUSH', album: 'MEMPHIS TAPES', genre: 'MEMPHIS PHONK', year: 2023,
+      cover: { a: '#ff3ea5', b: '#12082a', f: '#e6ecf5', h: '#ffffff', x: '#8c1a5c', m: 'tape' } },
     { id: 'lights', file: 'When The Lights Go Green.mp3', ctx: 'menu', dur: 133, artist: 'GRANDMASTER CLUTCH & THE PIT CREW', title: 'GONE IN A MINUTE', album: 'BREAKBEAT BOULEVARD', genre: 'OLD SCHOOL HIP-HOP', year: 1984,
       cover: { a: '#ff9a2e', b: '#6a1e10', f: '#ffd23f', h: '#fff3a0', x: '#1a1020', m: 'record' } },
     { id: 'hood', file: 'Dance on My Hood.mp3', ctx: 'menu', dur: 227, artist: 'HOOD ORNAMENT MOB', title: 'OWN THAT HOOD', album: 'CRUNK & CHROME', genre: 'CRUNK', year: 2005,
       cover: { a: '#7b2fbe', b: '#1a0a36', f: '#ffc31f', h: '#fff3a0', x: '#12082a', m: 'dollar' } },
     { id: 'runitup', file: 'Run It Up.mp3', ctx: 'menu', dur: 164, artist: 'HOOD ORNAMENT MOB', title: 'CHASE THIS PACK', album: 'CRUNK & CHROME', genre: 'CRUNK', year: 2005,
       cover: { a: '#7b2fbe', b: '#1a0a36', f: '#ffc31f', h: '#fff3a0', x: '#12082a', m: 'dollar' } },
+    { id: 'getoff', file: 'Get Off The Road.mp3', ctx: 'menu', dur: 188, artist: 'HOOD ORNAMENT MOB', title: 'GET OFF THE ROAD', album: 'CRUNK & CHROME', genre: 'CRUNK', year: 2005,
+      cover: { a: '#7b2fbe', b: '#1a0a36', f: '#ffc31f', h: '#fff3a0', x: '#12082a', m: 'dollar' } },
+    { id: 'speedmachine', file: 'Speed Machine.mp3', ctx: 'menu', dur: 181, artist: 'BLACKLIGHT', title: 'SPEED MACHINE', album: 'HEAVY WEATHER', genre: 'DUBSTEP', year: 2012,
+      cover: { a: '#9d5cff', b: '#0c1030', f: '#7ae83a', h: '#d8ff9a', x: '#12082a', m: 'wub' } },
     { id: 'redline', file: 'Redline Rush.mp3', ctx: 'menu', dur: 157, artist: 'LOS HIJOS DEL ASFALTO', title: 'NO SE PUEDE SLOW DOWN', album: 'BARRIO NITRO', genre: 'LATIN GANGSTA RAP', year: 2003,
       cover: { a: '#d8203a', b: '#0f3d1f', f: '#ffd23f', h: '#ffffff', x: '#12081a', m: 'crown' } },
     { id: 'raceboys', file: 'Race Boys.mp3', ctx: 'menu', dur: 198, artist: 'CHROME HONEYZ', title: 'COOLEST IN THE LANE', album: 'SUGAR & SPEEDWAY', genre: 'R&B', year: 2002,
@@ -31,6 +39,8 @@
       cover: { a: '#ffd0e8', b: '#9d5cff', f: '#ffffff', h: '#fff3a0', x: '#d8203a', m: 'star' } },
     { id: 'sober', file: 'Sober Racers.mp3', ctx: 'race', dur: 120, artist: 'THE SKIDMARK YOBS', title: 'DRIVE LIKE GHOSTS', album: 'LAST ORDERS AT THE PIT STOP', genre: 'UK STREET PUNK', year: 1982,
       cover: { a: '#f5e04a', b: '#29c7d8', f: '#12081a', h: '#ffffff', x: '#f5e04a', m: 'skull' } },
+    { id: 'toofast', file: 'Too Fast for the Frame.mp3', ctx: 'race', dur: 187, artist: 'BLACKLIGHT', title: 'TOO FAST FOR THE FRAME', album: 'HEAVY WEATHER', genre: 'DUBSTEP', year: 2012,
+      cover: { a: '#7ae83a', b: '#0c1030', f: '#9d5cff', h: '#d8ff9a', x: '#12082a', m: 'wub' } },
     { id: 'fullspeed', file: 'Full Speed, No Sleep.mp3', ctx: 'race', dur: 144, artist: 'THE REARVIEW KIDS', title: 'LIPSTICK ON THE PASSENGER SEAT', album: 'MIXTAPES & MIDNIGHT EXITS', genre: 'POP-PUNK', year: 2006,
       cover: { a: '#29c7d8', b: '#12081a', f: '#ff2a3a', h: '#ffffff', x: '#12081a', m: 'heartbreak' } },
   ];
@@ -46,6 +56,8 @@
     star: ['.....##.....', '.....##.....', '....####....', '############', '.####hh####.', '..########..', '..###..###..', '.###....###.', '.##......##.', '............', '..h......h..', '............'],
     mic: ['....####....', '...#hhhh#...', '...#h##h#...', '...#hhhh#...', '...#h##h#...', '....####....', '.....##.....', '..#..##..#..', '...######...', '.....##.....', '....####....', '............'],
     heartbreak: ['............', '.###....###.', '#hh##..#####', '#h###.######', '#####..#####', '######.#####', '.####.#####.', '..###..###..', '...###.##...', '....##.#....', '.....#......', '............'],
+    tape: ['............', '.##########.', '.#hhhhhhhh#.', '.#hhhhhhhh#.', '.##########.', '.#xx####xx#.', '.#x######x#.', '.#xx####xx#.', '.##########.', '.#.#.##.#.#.', '.##########.', '............'],
+    wub: ['...######...', '.##xxxxxx##.', '.#xx####xx#.', '#x##hhhh##x#', '#x#hh##hh#x#', '#x#h####h#x#', '#x#h####h#x#', '#x#hh##hh#x#', '#x##hhhh##x#', '.#xx####xx#.', '.##xxxxxx##.', '...######...'],
     hat: ['............', '....####....', '...######...', '...#h##h#...', '...######...', '############', '.##########.', '..xxxxxxxx..', '............', '.h.h.h.h.h..', 'h.h.h.h.h.h.', '............'],
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
@@ -109,9 +121,18 @@
 
   // take the next track of a context and move its pointer immediately,
   // so a song interrupted by a context change is never replayed from the start
+  let opened = false;                 // the theme has had its turn this load
   function take(c) {
     const pl = playlist(c);
     if (!pl.length) return null;
+    // The menu opens on the theme every time the game is loaded, and the rotation carries
+    // on from behind it. Send the theme to another context in the player, or switch it off,
+    // and this steps aside - the jukebox still has the last word on where a track plays.
+    if (c === 'menu' && !opened) {
+      opened = true;
+      const th = pl.find((t) => t.theme);
+      if (th) { st.ptr[c] = (pl.indexOf(th) + 1) % pl.length; save(); return th; }
+    }
     const i = ((st.ptr[c] % pl.length) + pl.length) % pl.length;
     st.ptr[c] = (i + 1) % pl.length;
     save();
