@@ -33,6 +33,12 @@
     const material = (x, y) => {
       let c = at(x, y);
       if (c !== 'K') return c;
+      // The outline along a sloped windscreen: glass behind it, open air in front. Turned into
+      // paint, every step of that stair became a body-coloured bar across the glass and the
+      // windscreen read as a louvred rear window. It is glass. (The rear slope keeps its bars.)
+      const gl = (n) => n === 'G' || n === 'g' || n === 'w';
+      if (gl(at(x - 1, y)) && !at(x + 1, y)) return 'g';
+      if (gl(at(x - 1, y + 1)) && !at(x + 1, y) && !at(x, y - 1)) return 'g';
       for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, 1]]) { const n = at(x + dx, y + dy); if (n && n !== 'K') return n === 'G' || n === 'g' || n === 'w' ? 'h' : n; }
       return 'T';
     };
@@ -78,6 +84,11 @@
     }
 
     // keep only exposed body voxels
+    // Glass seen from above or the front is one pane in one colour. The body narrows toward
+    // the ends of every row, so the light side-edge voxels of the glass land inside the
+    // windscreen's top face and turned it into a checker of light and dark squares - a grille.
+    const mix = (a, b, k) => { const x = rgb(a), y = rgb(b); return ((x[0] + (y[0] - x[0]) * k) << 16) | ((x[1] + (y[1] - x[1]) * k) << 8) | (x[2] + (y[2] - x[2]) * k); };
+    const pane = mix(pal.g, pal.G, 0.45);
     const xs = [], ys = [], zs = [], cs = [], ms = [], ks = [];
     const solid = (x, y, z) => x >= 0 && y >= 0 && x < W && y < H && z >= -HW && z <= HW && occ[idx(x, y, z)];
     for (let z = -HW; z <= HW; z++)
@@ -87,7 +98,8 @@
           if (!occ[i]) continue;
           const m = (solid(x + 1, y, z) ? 0 : 1) | (solid(x - 1, y, z) ? 0 : 2) | (solid(x, y + 1, z) ? 0 : 4) | (solid(x, y - 1, z) ? 0 : 8) | (solid(x, y, z + 1) ? 0 : 16) | (solid(x, y, z - 1) ? 0 : 32);
           if (!m) continue;
-          xs.push(x + 0.5 - map.ox); ys.push(y + 0.5 - map.oy); zs.push(z); cs.push(col[i]); ms.push(m); ks.push(kind[i]);
+          const c = kind[i] === 1 && !(m & 48) ? pane : col[i];
+          xs.push(x + 0.5 - map.ox); ys.push(y + 0.5 - map.oy); zs.push(z); cs.push(c); ms.push(m); ks.push(kind[i]);
         }
     const M = {
       n: xs.length, x: Float32Array.from(xs), y: Float32Array.from(ys), z: Float32Array.from(zs), c: Int32Array.from(cs), m: Uint8Array.from(ms), k: Uint8Array.from(ks),
@@ -166,7 +178,10 @@
       table[m] = best ? Math.round(best * 8) / 8 : 0;
     }
 
-    const plot = (X, Y, Z, r, g, b, bright) => {
+    // which pixels ended up glass: a stepped windscreen must not get depth outlines between
+    // its steps, or the glass reads as a stack of slats
+    const gm = new Uint8Array(bw * bh);
+    const plot = (X, Y, Z, r, g, b, bright, gl = 0) => {
       P(X, Y + bob, Z, tmpv);
       const px = Math.round(ox + (tmpv[0] - f[0]) * zoom - s / 2) - bx, py = Math.round(oyc + (tmpv[1] - f[1]) * zoom - s / 2) - by;
       const d = tmpv[2];
@@ -178,7 +193,7 @@
           if (xx < 0 || xx >= bw) continue;
           const j = yy * bw + xx;
           if (d >= zb[j]) continue;
-          zb[j] = d;
+          zb[j] = d; gm[j] = gl;
           const q = j * 4;
           data[q] = R2; data[q + 1] = G2; data[q + 2] = B2; data[q + 3] = 255;
         }
@@ -191,8 +206,10 @@
       const c = M.c[i];
       let bright = b;
       if (M.k[i] === 2) bright = 1.15 + (o.lights || 0) * 0.3;
-      else if (M.k[i] === 1) bright = M.m[i] & 8 ? Math.max(b, 1.05) : b * 0.95; // lit glass tops
-      plot(M.x[i], M.y[i], M.z[i], (c >> 16) & 255, (c >> 8) & 255, c & 255, bright);
+      // glass is one smooth pane: the tops and fronts of its stair steps get the same light,
+      // or the steps show through as bars
+      else if (M.k[i] === 1) bright = M.m[i] & 48 ? b : 1.02;
+      plot(M.x[i], M.y[i], M.z[i], (c >> 16) & 255, (c >> 8) & 255, c & 255, bright, M.k[i] === 1 ? 1 : 0);
     }
     // wheels (spokes rotate)
     const spin = o.spin || 0;
@@ -206,6 +223,29 @@
       plot(w.x, w.y - bob, w.z, c[0], c[1], c[2], bright);
     }
 
+    // A voxel is a flat square here, so on a stepped windscreen the air between two steps
+    // showed through and got outlined as dark slats. A pixel left empty with glass right above
+    // and below it (or either side) is one of those slits: it takes the glass colour instead.
+    // Only empty pixels are touched, so nothing ever paints over the body.
+    const reach = Math.max(2, Math.ceil(s / 2) + 1);
+    for (let pass = 0; pass < 2; pass++)
+      for (let y = 1; y < bh - 1; y++)
+        for (let x = 1; x < bw - 1; x++) {
+          const j = y * bw + x;
+          if (data[j * 4 + 3] === 255) continue;
+          let src = -1;
+          for (const [dx, dy] of [[0, 1], [1, 0]]) {
+            let a = -1, b = -1;
+            for (let k = 1; k <= reach && a < 0; k++) { const q = (y - dy * k) * bw + (x - dx * k); if (y - dy * k >= 0 && x - dx * k >= 0 && gm[q]) a = q; else if (data[q * 4 + 3] === 255) break; }
+            for (let k = 1; k <= reach && b < 0; k++) { const q = (y + dy * k) * bw + (x + dx * k); if (y + dy * k < bh && x + dx * k < bw && gm[q]) b = q; else if (data[q * 4 + 3] === 255) break; }
+            if (a >= 0 && b >= 0) { src = zb[a] > zb[b] ? a : b; break; }
+          }
+          if (src < 0) continue;
+          const q = j * 4, o = src * 4;
+          data[q] = data[o]; data[q + 1] = data[o + 1]; data[q + 2] = data[o + 2]; data[q + 3] = 255;
+          zb[j] = zb[src]; gm[j] = 1;
+        }
+
     // outline pass: silhouette + depth edges
     const OUT = [20, 12, 34];
     const filled = (j) => data[j * 4 + 3] === 255 && zb[j] < 1e8;
@@ -216,7 +256,7 @@
         if (filled(j)) {
           const d = zb[j];
           const n = [x > 0 ? j - 1 : -1, x < bw - 1 ? j + 1 : -1, y > 0 ? j - bw : -1, y < bh - 1 ? j + bw : -1];
-          for (const q of n) if (q >= 0 && filled(q) && zb[q] < d - 4.5) { out[j] = 2; break; }
+          for (const q of n) if (q >= 0 && filled(q) && zb[q] < d - 4.5 && !(gm[j] && gm[q])) { out[j] = 2; break; }
         } else {
           if ((x > 0 && filled(j - 1)) || (x < bw - 1 && filled(j + 1)) || (y > 0 && filled(j - bw)) || (y < bh - 1 && filled(j + bw))) out[j] = 1;
         }

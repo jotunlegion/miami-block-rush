@@ -34,19 +34,34 @@ Pixel-art 80s street racing where you build the road under your car. Drag Tetris
   it can be laid in mid air over the hole and still be driven onto
 - Replaying a level hands back the same track, seed and all, not a fresh roll of the same
   number - you lose the run, not the road you had learned
-- Coming last is not losing a level: it is passed whatever place you came in, because losing
-  already costs you the money you did not earn, and that money is what the next car costs -
-  being sent round again would charge for the same race twice. The one thing that fails a
-  level is the cell, since a cop touch is bought off at $50 a time and being taken in means
-  there was nothing left to pay with. A Blacklist duel is a gate instead: the pink slip goes
-  to first place only
+- A level is won by topping the final table - money, finish bonus and crash cuts all counted -
+  and only a win opens the next level. Losing still pays: whatever the run earned goes into the
+  garage either way (the results sheet says so on its way-out button), the win bonus is the one
+  thing a loss misses. A Blacklist duel is first across the line and pays the pink slip
+- Every laid block, yours and the rivals' alike, stands for five seconds and then crumbles. It
+  blinks the whole time and the blink speeds up as it runs out, so a road is built as it is
+  driven, not paved in advance. The tutorial bridge and a piece sitting in a tunnel wall stay
+- Pause (the two-bar key by the sound buttons, ESC or P on a keyboard) freezes the race and
+  offers carry on, start again, or the main menu. A phone put down mid-race comes back paused
+- Four parts of town take turns level by level: the sunset over the bay, Miami Beach at noon,
+  downtown at midnight and Little Havana (Calle Ocho) at golden hour. The menus keep the sunset
 - No turning a piece: the game runs too fast to spend a beat on it. Every turn of a shape is
   its own piece and the tray deals it like any other - all but the turns that meet the car with
   the high end of the slope, which are a wall at race speed and are never dealt to anyone
-- On a keyboard: A S D take a piece out of the tray, SPACE jumps, CTRL is nitro
+- On a keyboard: A S D take a piece out of the tray, SPACE jumps, CTRL is nitro. In the garage
+  A/D (or the arrows) flip the menu, categories, cars and tracks, W/S walk a list, and the mouse
+  wheel scrolls any long list - the radio, the Blacklist, paint and parts
+- Onboarding is acted out for the device in hand. Level 1 has two chasms: on a phone a hand
+  shows the drag on the first and the tap-a-slot-then-tap-the-road on the second; on a desk a
+  keycap goes down and the pointer clicks the chasm. The first neon level and the first tunnel
+  level (campaign or free ride) are each preceded by a short lesson - paint across a gap and up a
+  step; drop the lit piece into the wall - that pays nothing, counts as no level, can be skipped,
+  and hands straight over to the level it stood in front of. Portrait and landscape alike
 - Neon levels (4, 9, 14, ...): no blocks - you paint the road with your finger from a limited can of paint
 - Tunnel levels (8, 23, 38, ...): three parallel tunnels, one per racer, blocked by walls missing one or
   two pieces - drop them in and the filled column clears, Tetris style
+- A tunnel belongs to whoever drives it: a piece can only go inside your own deck, never over a
+  floor or into a rival's tunnel, and never onto a car, so nobody can be shoved into another lane
 - A wall is a puzzle to read, not a target to hit. The tray hands the missing piece over on a
   plate, so the only question is which one and where, and the piece the wall ahead is missing
   drops into the hole it belongs in from anywhere pointed at that wall - roughly its own width
@@ -91,6 +106,8 @@ between two walls in seconds at the car's top speed, and what the next wall is m
 - `js/paint.js` - neon painting mode: the paint tank, strokes, cans, gauge
 - `js/tunnel.js` - tunnel mode: deck layout, walls, the column clear, piece dealing, rival solving
 - `js/ai.js` - rival builders and police
+- `js/lessons.js` - onboarding: level 1 hints and the neon and tunnel lessons, per device
+- `js/scenery.js` - the race backdrops: Miami Beach, downtown at night, Little Havana
 - `js/garage.js`, `js/voxel3d.js` - garage, dealership, tuning, 3D voxel renderer
 - `js/catalog.js`, `js/custom.js`, `js/profile.js` - cars, parts, customization, save data
 - `js/music.js`, `js/audio.js` - radio player and chiptune SFX

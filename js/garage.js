@@ -276,6 +276,14 @@
     for (let i = 0; i < 26; i++) S.parts.push({ x: o.cx + (Math.random() - 0.5) * 160, y: o.cy + 34 + Math.random() * 6, vx: (Math.random() - 0.5) * 70, vy: -8 - Math.random() * 18, c: '#6a5a88', life: 0.5 + Math.random() * 0.4, g: 10, s: 1 });
   }
   const toast = (text, color = '#ffffff') => (S.toast = { text, color, t: 1.8 });
+  // Every purchase goes through here, so the cash counter never just jumps: it rolls down
+  // from what was there to what is left, and a red -$X drops out from under it.
+  function charge(n) {
+    const was = Profile.cash;
+    if (!Profile.spend(n)) return false;
+    if (n > 0) { S.cash.v = was; UI.tween(S.cash, { v: Profile.cash }, 0.9, 'outCubic'); S.spent = { text: '-' + UI.money(n), t: 1.4 }; }
+    return true;
+  }
   function installFx(focusName) {
     const map = curMap(), p = preset(focusName, map), o = camOpts();
     const [sx, sy] = Voxel3D.project(o, p.fx, p.fy, p.fz);
@@ -297,6 +305,7 @@
       if (p.life <= 0) S.parts.splice(i, 1);
     }
     if (S.toast && (S.toast.t -= dt) <= 0) S.toast = null;
+    if (S.spent && (S.spent.t -= dt) <= 0) S.spent = null;
     if (S.wipe.armed > 0) { S.wipe.armed -= dt; S.wipe.dead = Math.max(0, S.wipe.dead - dt); }
   }
 
@@ -480,15 +489,18 @@
     UI.icon(ctx, icon, tx + 9, 10 + y, accentHi());
     Font.draw(ctx, title, tx + 26, y + (port ? 12 : 9), '#ffffff', ts);
     const cash = UI.money(S.cash.v);
+    // while the counter is rolling down after a purchase it reads red, not green
+    const rolling = S.spent && Math.abs(S.cash.v - Profile.cash) >= 1;
+    const cashCol = rolling ? '#ff5c7a' : '#9bf08a';
     if (port) {
       const cw = Font.measure(cash, 2) + 22, cx = VW() - 4 - cw;
-      slant(cx, 5 + y, cw, 22, '#12082af0', '#3d2f7a', 4);
-      Font.draw(ctx, cash, VW() - 10, 9 + y, '#9bf08a', 2, 'right');
+      slant(cx, 5 + y, cw, 22, '#12082af0', rolling ? '#ff5c7a' : '#3d2f7a', 4);
+      Font.draw(ctx, cash, VW() - 10, 9 + y, cashCol, 2, 'right');
       return;
     }
-    slant(292, 5 + y, 184, 22, '#12082af0', '#3d2f7a');
+    slant(292, 5 + y, 184, 22, '#12082af0', rolling ? '#ff5c7a' : '#3d2f7a');
     Font.draw(ctx, 'ГОТІВКА', 306, 13 + y, '#8a7aa8');
-    Font.draw(ctx, cash, 468, 9 + y, '#9bf08a', 2, 'right');
+    Font.draw(ctx, cash, 468, 9 + y, cashCol, 2, 'right');
     if (window.Music && Music.started()) Music.drawMini(ctx, 226, 5 + y, E.button, accent());
   }
 
@@ -597,6 +609,13 @@
   }
 
   function toastDraw() {
+    // the price that just left the counter drops out from under it, over every panel
+    if (S.spent && !(S.spent.t < 0.3 && Math.floor(S.spent.t * 20) % 2)) {
+      const k = 1 - S.spent.t / 1.4, rx = PT() ? VW() - 10 : 468;
+      const tw = Font.measure(S.spent.text, 2), y = Math.round(30 + k * 10);
+      ctx.fillStyle = '#12082af0'; ctx.fillRect(rx - tw - 4, y - 2, tw + 8, 18);
+      Font.draw(ctx, S.spent.text, rx, y, '#ff5c7a', 2, 'right', '#12082a');
+    }
     if (!S.toast) return;
     const life = S.toast.t;
     if (life < 0.3 && Math.floor(life * 20) % 2) return;
@@ -688,7 +707,7 @@
     if (r && !r.installed) {
       const can = Profile.cash >= r.price;
       actionButton(lp.x, port ? L.actY : lp.y, lp.w, (r.price ? 'КУПИТИ ' + UI.money(r.price) : 'ВСТАНОВИТИ'), can ? '#ffc31f' : '#ff5c7a', () => {
-        if (!Profile.spend(r.price)) { Audio8.sfx.invalid(); toast('НЕ ВИСТАЧАЄ ГРОШЕЙ', '#ff5c7a'); return; }
+        if (!charge(r.price)) { Audio8.sfx.invalid(); toast('НЕ ВИСТАЧАЄ ГРОШЕЙ', '#ff5c7a'); return; }
         e.cu = Object.assign({}, e.cu, r.apply); Profile.save(); S.previewCu = null;
         Audio8.sfx.buy(); installFx(cat.cam); toast('ВСТАНОВЛЕНО!', '#9bf08a');
       }, can);
@@ -728,7 +747,7 @@
     else {
       const can = owned || Profile.cash >= cost;
       actionButton(lp.x, ay, lp.w, owned ? 'ВСТАНОВИТИ' : 'КУПИТИ ' + UI.money(cost), can ? (owned ? '#9bf08a' : '#ffc31f') : '#ff5c7a', () => {
-        if (!owned && !Profile.spend(cost)) { Audio8.sfx.invalid(); toast('НЕ ВИСТАЧАЄ ГРОШЕЙ', '#ff5c7a'); return; }
+        if (!owned && !charge(cost)) { Audio8.sfx.invalid(); toast('НЕ ВИСТАЧАЄ ГРОШЕЙ', '#ff5c7a'); return; }
         e.up[u.id] = j; e.own[u.id] = Math.max(e.own[u.id] || 0, j); Profile.save(); S.previewUp = null;
         Audio8.sfx.upgrade(); installFx(PERF_CAM[u.id]); toast('ПАКЕТ ' + Catalog.LEVEL_NAMES[j] + '!', '#9bf08a');
       }, can);
@@ -806,7 +825,7 @@
     else actionButton(bx, by, bw, S.confirm ? 'ПІДТВЕРДИТИ?' : 'КУПИТИ', '#ffc31f', () => {
       if (!S.confirm) { S.confirm = true; Audio8.sfx.select(); return; }
       if (Profile.buy(id) === 'ok') {
-        S.confirm = false; S.cash.v = Profile.cash + car.price; UI.tween(S.cash, { v: Profile.cash }, 0.9, 'outCubic');
+        S.confirm = false; S.cash.v = Profile.cash + car.price; UI.tween(S.cash, { v: Profile.cash }, 0.9, 'outCubic'); S.spent = { text: '-' + UI.money(car.price), t: 1.4 };
         Audio8.sfx.buy(); confetti(); toast('ПРИДБАНО!', '#ffc31f'); installFx('full');
       }
     });
@@ -1244,8 +1263,38 @@
     if (inLot() && Math.abs(q.x - o.x) > 90 && Math.abs(q.y - o.y) < 30) { shift(q.x < o.x ? 1 : -1); }
     return true;
   }
+  // WASD works everywhere the arrows do: A and D flip categories, menu entries, cars and
+  // tracks, W and S walk up and down a list
+  const WASD = { KeyA: 'ArrowLeft', KeyD: 'ArrowRight', KeyW: 'ArrowUp', KeyS: 'ArrowDown' };
+
+  // The mouse wheel scrolls the list on screen - tracks, the Blacklist, paint and parts - one
+  // row per notch. A screen with no list to scroll turns its carousel instead, like A and D.
+  let wheelAcc = 0;
+  function scrollList() {
+    if (S.screen === 'jukebox' && window.Music) return { total: Music.tracks.length, n: jukeRows() };
+    if (S.screen === 'career') return { total: careerList().length, n: careerRows() };
+    if (S.screen === 'visual') return { total: visualRows(VISUAL[S.cat.sel]).length, n: 6 };
+    if (S.screen === 'perf') return { total: Catalog.LEVEL_NAMES.length, n: 5 };
+    return null;
+  }
+  function wheel(dy) {
+    if (UI.transitioning || !S.screen) return;
+    wheelAcc += dy;
+    const step = Math.trunc(wheelAcc / 60);
+    if (!step) return;
+    wheelAcc -= step * 60;
+    const L = scrollList();
+    if (L) {
+      const ns = Math.max(0, Math.min(Math.max(0, L.total - L.n), S.scroll + step));
+      if (ns !== S.scroll) { S.scroll = ns; Audio8.sfx.select(); }
+      return;
+    }
+    if (S.screen === 'hub' || inLot()) key(step > 0 ? 'ArrowRight' : 'ArrowLeft');
+  }
+
   function key(code) {
     if (UI.transitioning) return;
+    code = WASD[code] || code;
     const st = S.screen === 'hub' ? S.menu : S.cat;
     const len = S.screen === 'hub' ? MENU.length : S.screen === 'visual' ? VISUAL.length : U.length;
     const change = S.screen === 'visual' ? pickVisualCat : S.screen === 'perf' ? pickPerfCat : null;
@@ -1290,7 +1339,7 @@
       if (code === 'ArrowDown' || code === 'ArrowUp') {
         S.item = Math.max(0, Math.min(n - 1, S.item + (code === 'ArrowDown' ? 1 : -1)));
         if (S.item < S.scroll) S.scroll = S.item;
-        if (S.item >= S.scroll + 6) S.scroll = S.item - 5;
+        if (S.item >= S.scroll + jukeRows()) S.scroll = S.item - jukeRows() + 1;
         Audio8.sfx.select();
       }
       if (code === 'Enter' || code === 'Space') Music.play(Music.tracks[S.item].id);
@@ -1318,5 +1367,5 @@
   // screen is laid out again from scratch rather than left half in one and half in the other
   const relayout = () => { if (S.screen) setup(S.screen); };
 
-  window.Garage = { enter, update, draw, pointerDown, pointerMove, pointerUp, key, relayout, get screen() { return S.screen; }, set onRace(fn) { S.onRace = fn; }, set onCareer(fn) { S.onCareer = fn; }, set onFree(fn) { S.onFree = fn; }, set onReset(fn) { S.onReset = fn; } };
+  window.Garage = { enter, update, draw, pointerDown, pointerMove, pointerUp, key, wheel, relayout, get screen() { return S.screen; }, set onRace(fn) { S.onRace = fn; }, set onCareer(fn) { S.onCareer = fn; }, set onFree(fn) { S.onFree = fn; }, set onReset(fn) { S.onReset = fn; } };
 })();

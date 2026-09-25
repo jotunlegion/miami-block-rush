@@ -14,7 +14,7 @@
   // free: one level counter per mechanic, kept apart from the campaign level on purpose -
   // a free ride is practice, not progress, and must not push the Blacklist along
   const blankFree = () => ({ blocks: 1, neon: 1, tunnel: 1 });
-  const blank = () => ({ v: 2, gang: DEFAULT_GANG, cash: START_CASH, current: null, level: 1, career: { beaten: [] }, free: blankFree(), bonusBest: 0, cars: {}, stats: { races: 0, wins: 0, earned: 0, best: 0 } });
+  const blank = () => ({ v: 2, gang: DEFAULT_GANG, cash: START_CASH, current: null, level: 1, career: { beaten: [] }, free: blankFree(), bonusBest: 0, lessons: {}, cars: {}, stats: { races: 0, wins: 0, earned: 0, best: 0 } });
 
   function load() {
     try {
@@ -33,6 +33,10 @@
     if (data.gang == null) data.gang = DEFAULT_GANG;
     data.free = Object.assign(blankFree(), data.free || {});
     data.bonusBest = data.bonusBest || 0;
+    // a save that is already past a mechanic has met it: no lesson for what is already known
+    data.lessons = Object.assign({}, data.lessons || {});
+    if (data.level > 4) data.lessons.neon = true;
+    if (data.level > 8) data.lessons.tunnel = true;
     if (!data.cars[data.current]) data.current = Object.keys(data.cars)[0] || null;
     return data;
   }
@@ -141,6 +145,8 @@
   const freeLevel = (m) => data.free[m] || 1;
   const freeOpen = (m) => data.level >= Levels.FREE[m].gate;
   function freeDone(m) { data.free[m] = freeLevel(m) + 1; save(); }
+  const lessonSeen = (k) => !!data.lessons[k];
+  function lessonDone(k) { data.lessons[k] = true; save(); }
   function bonusScore(v) { if (v > data.bonusBest) { data.bonusBest = v; save(); return true; } return false; }
 
   // ---------- Blacklist career ----------
@@ -165,7 +171,7 @@
 
   window.Profile = {
     load, save, setGang, levelDone, beaten, careerState, carOk, careerWin, buy, spend, stats, rating, bars, upgradeCost, partCost, def, playerDef, topSpeed, rivalDefs, raceDone, reset, GANG_LOOK,
-    freeLevel, freeOpen, freeDone, bonusScore,
+    freeLevel, freeOpen, freeDone, bonusScore, lessonSeen, lessonDone,
     get bonusBest() { return data.bonusBest; },
     get data() { return data; },
     get cash() { return data.cash; },

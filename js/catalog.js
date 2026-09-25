@@ -26,7 +26,7 @@
       ]),
     },
     {
-      id: 'st_kings', gang: 1, name: 'KENTE DEVILLE', year: 1983, era: 'СТАРТ', price: 3800, desc: 'ЛОУРАЙДЕР НА ГІДРАВЛІЦІ',
+      id: 'st_kings', gang: 1, name: 'KENTE DE-VALLE', year: 1983, era: 'СТАРТ', price: 3800, desc: 'ЛОУРАЙДЕР НА ГІДРАВЛІЦІ',
       stats: { top: 120, accel: 200, armor: 150, mass: 1.1, restComp: 3.2, damp: 0.22, hill: 0.55, launch: 1.3, air: 1 },
       paint: '#7b2fbe', accent: '#ffc31f', rims: 'gold', wheelX: [-11, 11], wheelY: 5,
       fixed: { r: '#e0302a', y: '#ffd23f', n: '#2fa84f' },
@@ -45,7 +45,7 @@
       ]),
     },
     {
-      id: 'st_havana', gang: 2, name: 'HAVANA BEL-AIR', year: 1957, era: 'СТАРТ', price: 4000, desc: 'КУБИНСЬКА КЛАСИКА 50-Х',
+      id: 'st_havana', gang: 2, name: 'HAVANA BELLAIRO', year: 1957, era: 'СТАРТ', price: 4000, desc: 'КУБИНСЬКА КЛАСИКА 50-Х',
       stats: { top: 128, accel: 240, armor: 120, mass: 0.9, restComp: 2.8, damp: 0.35, hill: 0.55, launch: 1.3, air: 1 },
       paint: '#29c7b8', accent: '#fff1c9', rims: 'white', wheelX: [-10, 9], wheelY: 5,
       fixed: { F: '#ff6a1f', f: '#ffd23f' },
@@ -68,7 +68,7 @@
   // stats: top speed px/s, accel, armor, mass; hill = climb assist, launch = ramp boost, air = air gravity mult
   const SHOP = [
     {
-      id: 'delta81', name: 'DELTA DMX', year: 1981, era: 80, price: 4500, paint: '#b9bfcc', accent: '#24202e', rims: 'chrome',
+      id: 'delta81', name: 'DELORA DMK-12', year: 1981, era: 80, price: 4500, paint: '#b9bfcc', accent: '#24202e', rims: 'chrome',
       stats: { top: 128, accel: 230, armor: 130, mass: 1.0, restComp: 2.6, damp: 0.4, hill: 0.55, launch: 1.3, air: 1.0 },
       desc: 'НЕРЖАВІЙКА З МАЙБУТНЬОГО', wheelX: [-10, 10], wheelY: 4,
       rows: [
@@ -87,7 +87,7 @@
       ],
     },
     {
-      id: 'contessa85', name: 'BULLO CONTESSA', year: 1985, era: 80, price: 9000, paint: '#f5c131', accent: '#24202e', rims: 'black',
+      id: 'contessa85', name: 'LAMBRO KONTASH', year: 1985, era: 80, price: 9000, paint: '#f5c131', accent: '#24202e', rims: 'black',
       stats: { top: 146, accel: 300, armor: 95, mass: 0.8, restComp: 2.3, damp: 0.45, hill: 0.55, launch: 1.32, air: 0.98 },
       desc: 'КЛИН, ЩО ЗЛАМАВ 80-ТІ', wheelX: [-10, 10], wheelY: 3.5,
       rows: [
@@ -106,7 +106,7 @@
       ],
     },
     {
-      id: 'rosso86', name: 'ROSSO TR', year: 1986, era: 80, price: 8000, paint: '#f2eefa', accent: '#24202e', rims: 'chrome',
+      id: 'rosso86', name: 'FERRANO TESTAROZA', year: 1986, era: 80, price: 8000, paint: '#f2eefa', accent: '#24202e', rims: 'chrome',
       stats: { top: 144, accel: 280, armor: 105, mass: 0.85, restComp: 2.4, damp: 0.42, hill: 0.56, launch: 1.3, air: 1.0 },
       desc: 'БІЛИЙ КОРОЛЬ ОУШЕН-ДРАЙВ', wheelX: [-10, 10], wheelY: 4,
       rows: [
@@ -125,7 +125,7 @@
       ],
     },
     {
-      id: 'porza87', name: 'PORZA 930 TURBO', year: 1987, era: 80, price: 7000, paint: '#24202e', accent: '#d8203a', rims: 'chrome',
+      id: 'porza87', name: 'PORCHA 390 TURBA', year: 1987, era: 80, price: 7000, paint: '#24202e', accent: '#d8203a', rims: 'chrome',
       stats: { top: 140, accel: 310, armor: 100, mass: 0.75, restComp: 2.4, damp: 0.42, hill: 0.58, launch: 1.3, air: 0.98 },
       desc: 'ТУРБО-ЯМА І КИТОВИЙ ХВІСТ', wheelX: [-10, 10], wheelY: 4,
       rows: [
@@ -144,7 +144,7 @@
       ],
     },
     {
-      id: 'bav88', name: 'BAVARIA E30 SPORT', year: 1988, era: 80, price: 7500, paint: '#3b3fb8', accent: '#d8203a', rims: 'white',
+      id: 'bav88', name: 'BMV E03 SPORTA', year: 1988, era: 80, price: 7500, paint: '#3b3fb8', accent: '#d8203a', rims: 'white',
       stats: { top: 134, accel: 290, armor: 115, mass: 0.75, restComp: 2.5, damp: 0.4, hill: 0.64, launch: 1.3, air: 1.0 },
       desc: 'КУБИК, ЩО ВИГРАЄ ТРЕКИ', wheelX: [-10, 10], wheelY: 4,
       rows: [
@@ -163,7 +163,7 @@
       ],
     },
     {
-      id: 'furia89', name: 'FURIA F40', year: 1989, era: 80, price: 12500, paint: '#d8203a', accent: '#24202e', rims: 'chrome',
+      id: 'furia89', name: 'FERRANO F04', year: 1989, era: 80, price: 12500, paint: '#d8203a', accent: '#24202e', rims: 'chrome',
       stats: { top: 152, accel: 340, armor: 90, mass: 0.7, restComp: 2.2, damp: 0.46, hill: 0.58, launch: 1.34, air: 0.96 },
       desc: 'СИРИЙ ГОНОЧНИЙ ЗВІР', wheelX: [-10, 10], wheelY: 4, wing: [[0, 0, 7, 3], [0, 3, 6, 5]],
       rows: [
@@ -182,7 +182,7 @@
       ],
     },
     {
-      id: 'hondo91', name: 'HONDO NSR', year: 1991, era: 90, price: 14000, paint: '#29e0b0', accent: '#24202e', rims: 'white',
+      id: 'hondo91', name: 'HONDO NZX', year: 1991, era: 90, price: 14000, paint: '#29e0b0', accent: '#24202e', rims: 'white',
       stats: { top: 150, accel: 320, armor: 110, mass: 0.75, restComp: 2.4, damp: 0.42, hill: 0.62, launch: 1.32, air: 0.96 },
       desc: 'ТОЧНІСТЬ ЯК У ШВЕЙЦАРСЬКОГО ГОДИННИКА', wheelX: [-10, 10], wheelY: 4,
       rows: [
@@ -201,7 +201,7 @@
       ],
     },
     {
-      id: 'corsa90', name: 'CORSA C4 ZR', year: 1990, era: 90, price: 13000, paint: '#ff3ea5', accent: '#24202e', rims: 'chrome',
+      id: 'corsa90', name: 'KORVETA C4 ZR-2', year: 1990, era: 90, price: 13000, paint: '#ff3ea5', accent: '#24202e', rims: 'chrome',
       stats: { top: 150, accel: 300, armor: 120, mass: 0.9, restComp: 2.6, damp: 0.38, hill: 0.56, launch: 1.3, air: 1.0 },
       desc: 'ДОВГИЙ КАПОТ, ЧИСТИЙ V8', wheelX: [-10, 10], wheelY: 4,
       rows: [
@@ -220,7 +220,7 @@
       ],
     },
     {
-      id: 'vipra92', name: 'VIPRA RT', year: 1992, era: 90, price: 17000, paint: '#2f5bd8', accent: '#f2eefa', rims: 'chrome',
+      id: 'vipra92', name: 'DODJE VAIPER RT', year: 1992, era: 90, price: 17000, paint: '#2f5bd8', accent: '#f2eefa', rims: 'chrome',
       stats: { top: 156, accel: 330, armor: 115, mass: 0.9, restComp: 2.6, damp: 0.38, hill: 0.57, launch: 1.3, air: 1.0 },
       desc: 'V10 І БОКОВІ ВИХЛОПИ', wheelX: [-10, 10], wheelY: 4,
       rows: [
@@ -239,7 +239,7 @@
       ],
     },
     {
-      id: 'diablo94', name: 'BULLO DIABOLO', year: 1994, era: 90, price: 22000, paint: '#8a3be8', accent: '#24202e', rims: 'black',
+      id: 'diablo94', name: 'LAMBRO DIABOLO', year: 1994, era: 90, price: 22000, paint: '#8a3be8', accent: '#24202e', rims: 'black',
       stats: { top: 160, accel: 340, armor: 110, mass: 0.85, restComp: 2.3, damp: 0.44, hill: 0.56, launch: 1.34, air: 0.97 },
       desc: 'ДИЯВОЛ ІЗ ВЕЛИКИМ КРИЛОМ', wheelX: [-10, 10], wheelY: 4, wing: [0, 0, 7, 4],
       rows: [
@@ -258,7 +258,7 @@
       ],
     },
     {
-      id: 'maklen95', name: 'MAKLEN F-UNO', year: 1995, era: 90, price: 28000, paint: '#4a4a5e', accent: '#ff7a1a', rims: 'chrome',
+      id: 'maklen95', name: 'MAKLARN F-UNO', year: 1995, era: 90, price: 28000, paint: '#4a4a5e', accent: '#ff7a1a', rims: 'chrome',
       stats: { top: 166, accel: 380, armor: 100, mass: 0.7, restComp: 2.3, damp: 0.45, hill: 0.58, launch: 1.34, air: 0.94 },
       desc: 'ЦЕНТРАЛЬНЕ КЕРМО, ЧИСТА НАУКА', wheelX: [-10, 10], wheelY: 4,
       rows: [
@@ -277,7 +277,7 @@
       ],
     },
     {
-      id: 'supra94', name: 'TOYOKA SUPRA-X', year: 1994, era: 90, price: 18000, paint: '#ff8a1a', accent: '#24202e', rims: 'chrome',
+      id: 'supra94', name: 'TOYOKA ZUPRA', year: 1994, era: 90, price: 18000, paint: '#ff8a1a', accent: '#24202e', rims: 'chrome',
       stats: { top: 154, accel: 360, armor: 120, mass: 0.8, restComp: 2.5, damp: 0.4, hill: 0.6, launch: 1.42, air: 0.95 },
       desc: 'ДЕСЯТИСЕКУНДНА ЛЕГЕНДА', wheelX: [-10, 10], wheelY: 4, wing: [0, 0, 8, 4],
       rows: [
@@ -296,7 +296,7 @@
       ],
     },
     {
-      id: 'gtr99', name: 'NISAN GT-R34', year: 1999, era: 90, price: 21000, paint: '#2f7bff', accent: '#24202e', rims: 'black',
+      id: 'gtr99', name: 'NISON SKAILINE GT-Q', year: 1999, era: 90, price: 21000, paint: '#2f7bff', accent: '#24202e', rims: 'black',
       stats: { top: 156, accel: 380, armor: 130, mass: 0.85, restComp: 2.5, damp: 0.4, hill: 0.7, launch: 1.34, air: 0.97 },
       desc: 'ГОДЗІЛА З ПОВНИМ ПРИВОДОМ', wheelX: [-10, 10], wheelY: 4, wing: [0, 0, 7, 4],
       rows: [
@@ -315,7 +315,7 @@
       ],
     },
     {
-      id: 'rx793', name: 'MAZRA RX-SEVEN', year: 1993, era: 90, price: 15000, paint: '#f5c131', accent: '#24202e', rims: 'white',
+      id: 'rx793', name: 'MAZRA RX-7E', year: 1993, era: 90, price: 15000, paint: '#f5c131', accent: '#24202e', rims: 'white',
       stats: { top: 150, accel: 340, armor: 100, mass: 0.7, restComp: 2.3, damp: 0.44, hill: 0.6, launch: 1.36, air: 0.9 },
       desc: 'РОТОРНИЙ ВИСК ДО 9000', wheelX: [-10, 10], wheelY: 4, wing: [0, 0, 6, 4],
       rows: [
@@ -334,7 +334,7 @@
       ],
     },
     {
-      id: 'sti04', name: 'SUBARA WRX STI', year: 2004, era: 2000, price: 26000, paint: '#2a4fb8', accent: '#f5c131', rims: 'gold',
+      id: 'sti04', name: 'ZUZAK IMPREZA WXE STO', year: 2004, era: 2000, price: 26000, paint: '#2a4fb8', accent: '#f5c131', rims: 'gold',
       stats: { top: 152, accel: 400, armor: 140, mass: 0.8, restComp: 2.8, damp: 0.36, hill: 0.78, launch: 1.36, air: 0.95 },
       desc: 'РАЛІЙНИЙ ПЛЕМІННИК', wheelX: [-10, 10], wheelY: 4, wing: [[0, 0, 8, 3], [0, 3, 7, 4]],
       rows: [
@@ -353,7 +353,7 @@
       ],
     },
     {
-      id: 'evo06', name: 'MITSU EVO-IX', year: 2006, era: 2000, price: 27000, paint: '#f2eefa', accent: '#d8203a', rims: 'black',
+      id: 'evo06', name: 'MITZUBI EVO-XI', year: 2006, era: 2000, price: 27000, paint: '#f2eefa', accent: '#d8203a', rims: 'black',
       stats: { top: 154, accel: 410, armor: 135, mass: 0.8, restComp: 2.8, damp: 0.36, hill: 0.76, launch: 1.36, air: 0.95 },
       desc: 'ЛАНСЕР, ЩО З\'ЇДАЄ ПОВОРОТИ', wheelX: [-10, 10], wheelY: 4, wing: [[0, 0, 8, 2], [0, 2, 7, 4]],
       rows: [
@@ -372,7 +372,7 @@
       ],
     },
     {
-      id: 'm3gtr05', name: 'BAVARIA M3 GTR', year: 2005, era: 2000, price: 36000, paint: '#b9bfcc', accent: '#2f7bff', rims: 'chrome',
+      id: 'm3gtr05', name: 'BMV M3 GTQ', year: 2005, era: 2000, price: 36000, paint: '#b9bfcc', accent: '#2f7bff', rims: 'chrome',
       stats: { top: 164, accel: 390, armor: 130, mass: 0.8, restComp: 2.5, damp: 0.42, hill: 0.68, launch: 1.36, air: 0.94 },
       desc: 'НАЙРОЗШУКУВАНІШЕ АВТО МІСТА', wheelX: [-10, 10], wheelY: 4, wing: [0, 0, 7, 4],
       rows: [
@@ -391,7 +391,7 @@
       ],
     },
     {
-      id: 'mustar05', name: 'MUSTAR GT', year: 2005, era: 2000, price: 24000, paint: '#24202e', accent: '#f2eefa', rims: 'black',
+      id: 'mustar05', name: 'FORT MUSTANK GT', year: 2005, era: 2000, price: 24000, paint: '#24202e', accent: '#f2eefa', rims: 'black',
       stats: { top: 158, accel: 350, armor: 155, mass: 1.0, restComp: 2.8, damp: 0.34, hill: 0.58, launch: 1.3, air: 1.0 },
       desc: 'РЕТРО-МЯЗИ, НОВЕ СЕРЦЕ', wheelX: [-10, 10], wheelY: 4,
       rows: [
@@ -410,7 +410,7 @@
       ],
     },
     {
-      id: 'carrera04', name: 'PORZA CARRERA-G', year: 2004, era: 2000, price: 52000, paint: '#9aa0b0', accent: '#24202e', rims: 'chrome',
+      id: 'carrera04', name: 'PORCHA KARERA GT-2', year: 2004, era: 2000, price: 52000, paint: '#9aa0b0', accent: '#24202e', rims: 'chrome',
       stats: { top: 172, accel: 430, armor: 110, mass: 0.7, restComp: 2.2, damp: 0.46, hill: 0.64, launch: 1.38, air: 0.92 },
       desc: 'V10 ПРОСТО З ЛЕ-МАНУ', wheelX: [-10, 10], wheelY: 4,
       rows: [
@@ -429,7 +429,7 @@
       ],
     },
     {
-      id: 'veyra08', name: 'VEYRA 16.4', year: 2008, era: 2000, price: 95000, paint: '#2a4fb8', accent: '#24202e', rims: 'chrome',
+      id: 'veyra08', name: 'BUGADI VEYRO 14.6', year: 2008, era: 2000, price: 95000, paint: '#2a4fb8', accent: '#24202e', rims: 'chrome',
       stats: { top: 184, accel: 480, armor: 150, mass: 0.9, restComp: 2.6, damp: 0.42, hill: 0.7, launch: 1.4, air: 0.92 },
       desc: 'ШІСТНАДЦЯТЬ ЦИЛІНДРІВ. КРАПКА.', wheelX: [-10, 10], wheelY: 4,
       rows: [

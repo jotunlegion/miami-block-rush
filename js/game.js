@@ -4,6 +4,7 @@
   const STEP = 1 / 120;
   const DRAG_LIFT = 22;               // the held block rides this far above the fingertip
   const TUNNEL_LEAD = 0.6;            // in a tunnel the car rides this much closer to the left edge
+  const BLOCK_LIFE = 5;               // seconds a laid block stands before it crumbles
   const STAT_LABELS = ['ШВИДКІСТЬ', 'РОЗГІН', 'ПОЛІТ', 'МІЦНІСТЬ'];
   // On a desk the tray is worked with the left hand while the right one points at the road:
   // A S D take a piece, CTRL is nitro. The letters are written on the slots, but only where
@@ -64,18 +65,6 @@
     ctx.drawImage(img, Math.round(cx - map.ox * s), Math.round(cy - map.oy * s - hop), map.w * s, map.h * s);
   }
   const starterMap = (i) => Custom.build(Catalog.STARTERS[i]);
-  const HAND = Art.fromRows([
-    '.KK......',
-    'KWWK.....',
-    'KWWK.....',
-    'KWWKKK...',
-    'KWWWWWKK.',
-    'KWWWWWWWK',
-    'KWWWWWWWK',
-    '.KWWWWWK.',
-    '..KKKKK..',
-  ], { K: '#12082a', W: '#ffffff' });
-
   const Game = {
     state: 'title', time: 0, selected: 0, buttons: [], shakeAmt: 0, camX: 0,
     world: null, cars: [], police: [], ais: [], tray: [], drag: null, banner: null, acc: 0,
@@ -112,15 +101,24 @@
     // A free ride plays one mechanic at its own counter; everything else about the race is
     // the same, so it comes in here as a level config rather than a second race loop.
     startFree(mode, k) {
+      // the first free ride on the brush or in the tunnels is taught before it is played
+      if ((mode === 'neon' || mode === 'tunnel') && !Profile.lessonSeen(mode)) return this.startRace(null, null, Levels.lesson(mode, { free: mode }));
       const lvl = k || Profile.freeLevel(mode);
       this.startRace(null, null, Levels.freeConfig(mode, lvl));
     },
 
     // seed: replaying a level must hand back the same track, not roll a new one
     startRace(n, seed, cfg) {
+      // the first time a mechanic turns up, its lesson plays first and then hands over
+      if (!cfg && seed == null) {
+        const n0 = n || Profile.data.level || 1, kind = Levels.lessonBefore(n0);
+        if (kind && !Profile.lessonSeen(kind)) return this.startRace(null, null, Levels.lesson(kind, { n: n0 }));
+      }
       Particles.clear();
       const L = (this.level = cfg || Levels.config(n || Profile.data.level || 1));
       this.free = L.free || null;
+      // the part of town takes turns level by level: sunset bay, the beach, downtown, Little Havana
+      this.theme = Scenery.pick(L.free ? L.freeLevel : L.n);
       this.seed = seed == null ? (Math.random() * 1e9) | 0 : seed;
       const gi = Profile.data.gang;
       this.gi = gi;
@@ -135,7 +133,8 @@
       this.police = px.slice(0, L.police).map((x, i) => new Police(this.world, x, this, i));
       this.helis = [];
       for (let i = 0; i < (L.heli || 0); i++) this.helis.push(new Helicopter(this, i));
-      this.tut = L.tutorial ? { bridged: false } : null;
+      this.tut = L.tutorial ? {} : null;
+      this.lesson = L.lesson ? { kind: L.lesson, done: false, t: 0 } : null;
       this.boss = null;
       if (L.tunnel) this.toTunnels();
       // dealt one at a time: on a tunnel level the next piece depends on what is already in the tray
@@ -183,7 +182,7 @@
 
     resetRace() {
       this.drag = null; this.grab = null; this.ink = null; this.platT = 3; this.banner = null;
-      this.armed = null;
+      this.armed = null; this.paused = false;
       this.count = 3.99; this.lastBeep = 4;
       this.raceTime = 0; this.finished = 0; this.endTimer = Infinity; this.acc = 0;
       this.camX = this.player.x - this.camLead(R.lead.base);
@@ -203,6 +202,7 @@
     startCareer(r, seed) {
       Particles.clear();
       const L = (this.level = Levels.boss(r));
+      this.theme = Scenery.pick(r.rank);
       const gi = Profile.data.gang;
       this.gi = gi;
       this.seed = seed == null ? (Math.random() * 1e9) | 0 : seed;
@@ -213,7 +213,7 @@
       this.player = new Car(this.world, Profile.playerDef(), 270, 128, true, gi);
       this.cars.push(this.player);
       this.ais = [new AIBuilder(this.cars[0], this, L.ai)];
-      this.police = []; this.helis = []; this.tut = null;
+      this.police = []; this.helis = []; this.tut = null; this.lesson = null;
       this.free = null; this.boss = r;
       this.tray = [];
       for (let i = 0; i < 3; i++) this.tray.push({ piece: this.nextPiece() });
@@ -223,7 +223,7 @@
     },
 
     nextPiece() {
-      if (this.level && this.level.tutorial) return { p: Math.random() < 0.7 ? 0 : 1, v: 0 };
+      if (this.level && this.level.tutorial) return { p: 0, v: 0 };   // every chasm is four wide
       if (this.world && this.world.tunnels) return Tunnel.deal(this);
       return World.randomPiece(Math.random);
     },
@@ -245,18 +245,81 @@
       return out;
     },
 
+    // A tunnel belongs to whoever drives it. A piece may only go inside the laying racer's own
+    // deck - never over a floor, never into a neighbour's tunnel - and never on top of a car:
+    // lifting a car there shoved it up through the deck and out onto somebody else's track.
+    laneOf(owner) {
+      const w = this.world;
+      if (!w.tunnels) return null;
+      const car = this.cars.find((c) => c.gi === owner);
+      return car && car.tunnel != null ? w.tunnels[car.tunnel] : null;
+    },
+    laneOk(shape, col, row, owner) {
+      const t = this.laneOf(owner);
+      if (!t) return true;
+      if (row < t.top || row + shape.length - 1 > t.bottom) return false;
+      // the car's own centre is the one spot a piece may not take; its bounding box has slack
+      // enough to overlap a hole the car is pressed up against, and that hole must stay fillable
+      for (const c of this.cars) {
+        if (c.tunnel !== t.i) continue;
+        const cc = Math.floor(c.x / CELL) - col, cr = Math.floor(c.y / CELL) - row;
+        if (cr >= 0 && cr < shape.length && cc >= 0 && cc < shape[0].length && shape[cr][cc]) return false;
+      }
+      return true;
+    },
+
     tryPlace(shape, col, row, owner, replace = false) {
+      if (!this.laneOk(shape, col, row, owner)) return false;
       if (!World.canPlace(this.world, shape, col, row, this.rects(!replace, null, replace), replace)) return false;
       if (this.world.draw) return this.paintShape(shape, col, row, owner);
       if (replace) { this.shatterUnder(shape, col, row, owner); this.clearPickups(shape, col, row); }
-      World.place(this.world, shape, col, row, owner);
-      if (replace) this.liftCars(shape, col, row);
+      World.place(this.world, shape, col, row, owner, this.blockLife(col, shape));
+      if (replace && !this.world.tunnels) this.liftCars(shape, col, row);
       const pal = Art.teamPal(owner);
       shape.forEach((line, dy) => line.forEach((t, dx) => {
         if (t) Particles.spark((col + dx) * CELL + 8, (row + dy) * CELL + 8, 2, [pal.hi, '#ffffff'], 40);
       }));
       if (this.world.tunnels) Tunnel.onPlace(this, shape, col, row);
       return true;
+    },
+
+    // Every laid block - yours and the rivals' alike - stands for BLOCK_LIFE seconds and then
+    // crumbles, so a road has to be built as it is driven rather than paved in advance. Two
+    // pieces stay: the tutorial bridge, which the lesson waits on, and a piece sitting in a
+    // tunnel wall, which is half of a puzzle the other half has not been laid for yet.
+    blockLife(col, shape) {
+      const w = this.world;
+      if (this.level.tutorial) return 0;
+      if (w.tunnels && w.walls.some((q) => col < q.col + q.w && col + shape[0].length > q.col)) return 0;
+      return BLOCK_LIFE;
+    },
+
+    ageBlocks(dt) {
+      const w = this.world, life = w.life;
+      let gone = 0;
+      for (let i = 0; i < life.length; i++) {
+        if (!life[i]) continue;
+        if (!w.type[i]) { life[i] = 0; continue; }
+        life[i] -= dt;
+        if (life[i] > 0) continue;
+        life[i] = 0;
+        const c = i % w.cols, r = (i / w.cols) | 0, pal = Art.teamPal(w.owner[i]);
+        const cols = [pal.hi, pal.main, pal.body, pal.dark];
+        for (let k = 0; k < 8; k++) {
+          const a = Math.random() * Math.PI * 2, v = 30 + Math.random() * 70;
+          Particles.voxel(c * CELL + 2 + Math.random() * 12, r * CELL + 2 + Math.random() * 12, Math.cos(a) * v, Math.sin(a) * v - 40, cols[k % 4], 1 + Math.random());
+        }
+        w.type[i] = 0; w.owner[i] = 0;
+        if (Math.abs(c * CELL - this.player.x) < 260) gone++;
+      }
+      if (gone) Audio8.sfx.thud(0.4);
+    },
+
+    // The blink speeds up as the block runs out: its phase is the integral of a frequency
+    // that climbs from about one flash a second to ten, so it reads as a fuse burning down.
+    blockVisible(life) {
+      const e = BLOCK_LIFE - life;
+      return Math.sin(Math.PI * 2 * (0.8 * e + 0.9 * e * e)) > -0.2;
     },
 
     // Anything the new piece landed on top of is set on the piece rather than buried in it.
@@ -425,14 +488,12 @@
       this.results = this.cars
         .map((c) => ({ c, total: c.state === 'busted' && !L.bonusRun ? 0 : this.keep(c, c.money + c.bonus) }))
         .sort((a, b) => b.total - a.total);
-      // Winning and passing are two different things. A Blacklist duel is a gate: there the
-      // rival's pink slip is the prize and second place gets nothing. An ordinary level is
-      // passed by reaching the finish at all - coming last is punished by the money you did
-      // not earn, which is what the next car costs, and not by being sent round again.
-      // The one way to fail one is the cell: a cop touch is bought off at $50 a time, so
-      // being taken in means there was nothing left to pay with. That run is over.
+      // A level is won by topping the final table - money, finish bonus and crash cuts all
+      // counted - and only a win opens the next one. Losing still pays: whatever the run
+      // earned goes into the garage either way, the win bonus is the one thing it misses.
+      // A Blacklist duel is first across the line; a bonus run has no one to beat.
       this.win = L.bonusRun ? true : p.state !== 'busted' && p.place > 0 && (this.boss ? p.place === 1 : this.results[0].c === p);
-      this.passed = this.boss ? this.win : L.bonusRun ? true : p.state !== 'busted';
+      this.passed = this.win;
       // A bonus run pays what you picked up, full stop: the cops ending the run is the whole
       // penalty, and taxing the crashes on top would punish the same mistake twice.
       this.earned = L.bonusRun ? p.money : p.state === 'busted' ? 0 : this.keep(p, p.money + p.bonus + (this.win ? L.winBonus : 0));
@@ -465,6 +526,49 @@
 
     slotRect(i) { return R.slots[i]; },
 
+    // A lesson is done - finished or skipped. It is marked as seen, pays nothing, and the
+    // level it stood in front of starts straight away.
+    lessonDone() {
+      const L = this.level;
+      if (!L || !L.lesson || this.leaving) return;
+      const then = L.then || {};
+      Profile.lessonDone(L.lesson);
+      this.leaving = true;
+      const go = () => { this.leaving = false; if (then.free) this.startFree(then.free); else this.startRace(then.n); };
+      if (!UI.transition('shutter', go, then.free ? Levels.FREE[then.free].name : 'РІВЕНЬ ' + then.n)) this.leaving = false;
+    },
+
+    // Pause freezes the race where it stands - physics, rivals, cops, the block fuses - and
+    // drops a menu over it: carry on, start the level again, or walk out to the main menu.
+    // Walking out abandons the run, so nothing it picked up is paid.
+    setPause(on) {
+      if (this.state !== 'race' && this.state !== 'countdown') return;
+      if (!!this.paused === on) return;
+      this.paused = on;
+      this.drag = null; this.armed = null; this.ink = null;
+      if (this.grab) this.releaseGrab();
+      Audio8.setEngine(0, false); Audio8.setSiren(0);
+      Audio8.sfx.click();
+    },
+
+    drawPause() {
+      // the HUD underneath stays on screen but not under the finger
+      this.buttons = [];
+      ctx.fillStyle = '#12082ad8'; ctx.fillRect(0, 0, vw, vh);
+      ctx.save(); ctx.translate(ox, oy);
+      const main = Art.TEAM[this.gi].main;
+      const cy = Math.round(DH / 2) - (P ? 70 : 60);
+      Font.draw(ctx, 'ПАУЗА', CX, cy, '#ffc31f', 3, 'center', '#8c1a5c');
+      const where = this.level.lesson ? this.level.name : this.free ? Levels.FREE[this.free].name + ' ' + this.level.freeLevel : this.boss ? 'СПИСОК #' + this.boss.rank : this.level.bonusRun ? 'БОНУСНИЙ ЗАЇЗД' : 'РІВЕНЬ ' + this.level.n;
+      Font.draw(ctx, where + ' - ' + Scenery.NAMES[this.theme], CX, cy + 28, '#d8ccff', 1, 'center');
+      const bw = P ? Math.min(200, DW - 24) : 170, bh = P ? 26 : 22, bx = Math.round(CX - bw / 2), s = P ? 2 : 1, gap = bh + 6;
+      let y = cy + 44;
+      this.button(bx, y, bw, bh, 'ПРОДОВЖИТИ', main, () => this.setPause(false), s); y += gap;
+      this.button(bx, y, bw, bh, 'ПОЧАТИ ЗАНОВО', '#29e0d0', () => { this.paused = false; UI.transition('shutter', () => this.replay(), where); }, s); y += gap;
+      this.button(bx, y, bw, bh, 'ГОЛОВНЕ МЕНЮ', '#9d8cff', () => { this.paused = false; UI.transition('shutter', () => this.toGarage(), 'ГАРАЖ'); }, s);
+      ctx.restore();
+    },
+
     // A S D take a piece into the hand exactly as a thumb on the slot does, and the same key
     // again puts it back - a key that is held down must never turn into a second meaning.
     armSlot(i) {
@@ -496,12 +600,15 @@
       row = Math.max(1, Math.min(ROWS - shape.length, row));
       col = Math.max(0, Math.min(this.world.cols - shape[0].length, col));
       // tutorial: a straight block dropped near the chasm snaps into it
-      const gap = this.tut && !this.tut.bridged ? this.world.gap : null;
+      const gap = this.tut ? this.world.gap : null;
       if (gap && shape.length === 1 && Math.abs(row - gap.row) <= 1 && col + shape[0].length > gap.col - 2 && col < gap.col + gap.len + 2) {
         row = gap.row;
         col = Math.max(gap.col, Math.min(gap.col + gap.len - shape[0].length, col));
       }
-      // tunnels: the right piece aimed anywhere at the wall ahead drops into the hole it fits
+      // tunnels: the aim is held inside the player's own deck, and the right piece aimed
+      // anywhere at the wall ahead drops into the hole it fits
+      const lane = this.laneOf(this.gi);
+      if (lane) row = Math.max(lane.top, Math.min(lane.bottom - shape.length + 1, row));
       if (this.world.tunnels) {
         const fit = Tunnel.snap(this, piece, col, row, shape);
         if (fit) { col = fit.col; row = fit.row; }
@@ -509,7 +616,7 @@
       const sxL = col * CELL - this.camX;
       const onScreen = sxL + sw > -ox && sxL < vw - ox && sy < TRAY_Y;
       // the ghost has to answer exactly what tryPlace will, cars included
-      const ok = onScreen && World.canPlace(this.world, shape, col, row, this.rects(false, null, true), true);
+      const ok = onScreen && this.laneOk(shape, col, row, this.gi) && World.canPlace(this.world, shape, col, row, this.rects(false, null, true), true);
       const swap = new Set();
       shape.forEach((line, dy) => line.forEach((t, dx) => { if (t && World.cellAt(this.world, col + dx, row + dy)) swap.add(dy * 16 + dx); }));
       return { shape, col, row, ok, swap };
@@ -561,6 +668,7 @@
       this.pressJ = Math.max(0, (this.pressJ || 0) - dt); this.pressN = Math.max(0, (this.pressN || 0) - dt);
       if (this.banner && (this.banner.t -= dt) <= 0) this.banner = null;
       if (this.clickFx && (this.clickFx.t += dt) > 0.3) this.clickFx = null;
+      if (this.paused && (this.state === 'countdown' || this.state === 'race')) return;
       if (this.state === 'countdown' || this.state === 'race') this.updateRace(dt);
       else if (this.state === 'garage') Garage.update(dt);
       if (window.Bot && (this.state === 'countdown' || this.state === 'race')) Bot.update(dt);
@@ -591,10 +699,11 @@
       this.police.forEach((q) => q.update(dt, this));
       for (const h of this.helis) h.update(dt, this);
       for (const c of this.cars) if (c.fineCd > 0) c.fineCd -= dt;
-      if (this.tut) this.updateTutorial();
+      if (this.tut || this.lesson) Lessons.update(this, dt);
       if (this.level.draw) Paint.update(dt, this);
       Particles.update(dt, w);
       for (let i = 0; i < w.flash.length; i++) if (w.flash[i] > 0) w.flash[i] = Math.max(0, w.flash[i] - dt * 10);
+      if (this.state === 'race') this.ageBlocks(dt);
       for (const s of this.tray) if (s.flash > 0) s.flash -= dt;
       if (w.tunnels) Tunnel.restock(this, dt);
 
@@ -610,25 +719,13 @@
 
       const racing = this.cars.filter((c) => c.state !== 'finished' && c.state !== 'busted');
       if (!racing.length) this.endTimer = Math.min(this.endTimer, 1.5);
-      if (this.endTimer !== Infinity) { this.endTimer -= dt; if (this.endTimer <= 0) this.showResults(); }
+      // a lesson ends in its own hand-over, never on a results sheet
+      if (this.endTimer !== Infinity && !this.lesson) { this.endTimer -= dt; if (this.endTimer <= 0) this.showResults(); }
 
       Audio8.setEngine(Math.abs(p.vx), p.active || p.state === 'finished');
       let d = Infinity;
       for (const q of this.police) d = Math.min(d, Math.abs(p.x - q.x));
       Audio8.setSiren(this.state === 'race' && p.state !== 'busted' && this.police.length ? 1 - d / 380 : 0);
-    },
-
-    // level 1: the car waits at the chasm until a block bridges it on roof level
-    updateTutorial() {
-      const T = this.tut, w = this.world, g = w.gap, p = this.player;
-      if (!T.bridged) {
-        let ok = true;
-        for (let c = g.col; c < g.col + g.len; c++) if (World.cellAt(w, c, g.row) !== 1) ok = false;
-        if (ok) { T.bridged = true; this.banner = { text: 'ЧУДОВО!', color: '#b6ff6a', t: 1.4 }; Audio8.sfx.pickup(3); }
-      }
-      const hold = !T.bridged && p.x > g.col * CELL - 70 && p.x < g.col * CELL;
-      if (p.hold && !hold) p.stopped = false;
-      p.hold = hold;
     },
 
     updatePlatforms(dt) {
@@ -678,10 +775,13 @@
 
     pointerDown(e) {
       const q = this.toSafe(e);
+      this.inputMode = e.pointerType === 'touch' ? 'touch' : 'pc';
       if (e.pointerType !== 'touch') { this.mouse = q; this.clickFx = { x: q.x, y: q.y, t: 0 }; }
       if (UI.transitioning) return;
       if (this.state === 'garage') { Garage.pointerDown(q); return; }
-      if ((this.state === 'race' || this.state === 'countdown') && this.player.state !== 'busted') {
+      if ((this.state === 'race' || this.state === 'countdown') && this.player.state !== 'busted' && !this.paused) {
+        // the pause key is a HUD button and has to win over a tap on the road beneath it
+        if (this.buttons.some((b) => b.pause && q.x >= b.x && q.x < b.x + b.w && q.y >= b.y && q.y < b.y + b.h)) return;
         const inR = (r) => q.x >= r.x && q.x < r.x + r.w && q.y >= r.y && q.y < r.y + r.h;
         const f = this.toField(q);
         if (inR(this.level.draw ? R.jumpWide : R.jump)) { this.player.jump(); this.pressJ = 0.15; return; }
@@ -813,8 +913,10 @@
       } else {
       const menu = this.state === 'title' || this.state === 'select';
       const cam = menu ? this.time * 40 : this.camX;
+      // the road's blocks dress for the same part of town as the backdrop
+      Art.setTheme(menu ? 'sunset' : this.theme);
       // the sunset hangs off the road: in the menus there is none, so it gets its own line
-      Art.drawBackground(ctx, vw, vh, menu ? oy + Layout.menuHorizon() : oy + R.fieldTop, cam, this.time);
+      Art.drawBackground(ctx, vw, vh, menu ? oy + Layout.menuHorizon() : oy + R.fieldTop, cam, this.time, menu ? null : this.theme);
       if (this.state === 'title') this.drawTitle();
       else if (this.state === 'select') this.drawSelect();
       else {
@@ -823,7 +925,7 @@
         // the results sheet is its own screen: leaving the race HUD under it only put live
         // buttons behind a dim overlay, and in portrait it collided with the heading outright
         if (this.state === 'results') this.drawResults();
-        else { this.drawHUD(); this.drawHeldCursor(); }
+        else { this.drawHUD(); this.drawHeldCursor(); if (this.paused) this.drawPause(); }
       }
       }
       if (window.Bot && (this.state === 'race' || this.state === 'countdown')) { ctx.save(); ctx.translate(ox, oy); Bot.draw(ctx); ctx.restore(); }
@@ -957,6 +1059,15 @@
           const i = r * w.cols + c, ty = w.type[i];
           if (!ty) continue;
           const X = c * CELL - cx, Y = r * CELL;
+          const life = w.life[i];
+          if (life > 0 && !this.blockVisible(life)) {
+            // the off beat of the blink: a ghost of the block with a white rim, never a hole,
+            // so a road about to go still reads as road
+            ctx.globalAlpha = 0.3; ctx.drawImage(Art.tile(ty, w.owner[i]), X, Y); ctx.globalAlpha = 1;
+            ctx.fillStyle = life < 1.5 ? '#ff5c7a' : '#ffffff';
+            ctx.fillRect(X, Y, CELL, 1); ctx.fillRect(X, Y + CELL - 1, CELL, 1); ctx.fillRect(X, Y, 1, CELL); ctx.fillRect(X + CELL - 1, Y, 1, CELL);
+            continue;
+          }
           ctx.drawImage(Art.tile(ty, w.owner[i]), X, Y);
           if (w.flash[i] > 0) { ctx.globalAlpha = w.flash[i]; ctx.drawImage(tintTile(ty, '#ffffff'), X, Y); ctx.globalAlpha = 1; }
         }
@@ -1199,7 +1310,7 @@
       const pos = 1 + this.cars.filter((c) => c !== p && key(c) > key(p)).length;
       if (this.level.bonusRun) Font.draw(ctx, 'КОПИ ' + this.police.length, rightX, posY, '#ff5c7a', 1, 'right');
       else Font.draw(ctx, 'ПОЗ ' + pos + '/' + this.cars.length, rightX, posY, '#ffffff', 1, 'right');
-      Font.draw(ctx, this.free ? Levels.FREE[this.free].name + ' ' + this.level.freeLevel : this.boss ? 'СПИСОК #' + this.boss.rank : this.level.bonusRun ? 'БОНУС' : 'РІВЕНЬ ' + this.level.n, rightX, lvlY, '#b9a8e0', 1, 'right');
+      Font.draw(ctx, this.level.lesson ? 'НАВЧАННЯ' : this.free ? Levels.FREE[this.free].name + ' ' + this.level.freeLevel : this.boss ? 'СПИСОК #' + this.boss.rank : this.level.bonusRun ? 'БОНУС' : 'РІВЕНЬ ' + this.level.n, rightX, lvlY, '#b9a8e0', 1, 'right');
       if (p.boost > 0)
         for (let k = 0; k < 14; k++) {
           ctx.fillStyle = k % 3 ? '#ffffff55' : '#29d9ff88';
@@ -1208,6 +1319,17 @@
           ctx.fillRect(DW - lx, ly, 18 + (k % 3) * 8, 1);
         }
       this.button(muteR.x, muteR.y, 48, 12, Audio8.isMuted() ? 'ТИХО' : 'ЗВУК', '#9d8cff', () => Audio8.toggleMute());
+      // pause: two bars, sat where the thumb or the pointer already goes for the sound keys
+      // on a phone there is no ESC, so this key is the only way into the pause menu: it is sized
+      // for a thumb there, and catches a wider area than it shows
+      const big = !HAS_KEYS || this.inputMode === 'touch';
+      const pz = P ? { x: DW - (big ? 132 : 126), y: big ? 30 : 32, w: big ? 26 : 20, h: big ? 18 : 15 } : { x: 336, y: 1, w: big ? 24 : 20, h: big ? 18 : 15 };
+      ctx.fillStyle = '#12082a'; ctx.fillRect(pz.x, pz.y, pz.w, pz.h);
+      ctx.fillStyle = '#ffc31f';
+      ctx.fillRect(pz.x, pz.y, pz.w, 1); ctx.fillRect(pz.x, pz.y + pz.h - 1, pz.w, 1); ctx.fillRect(pz.x, pz.y, 1, pz.h); ctx.fillRect(pz.x + pz.w - 1, pz.y, 1, pz.h);
+      const bx = Math.round(pz.x + pz.w / 2), pad = big ? 6 : 3;
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(bx - 5, pz.y + 4, 3, pz.h - 8); ctx.fillRect(bx + 2, pz.y + 4, 3, pz.h - 8);
+      this.buttons.push({ x: pz.x - pad, y: pz.y - pad, w: pz.w + pad * 2, h: pz.h + pad * 2, pause: true, fn: () => this.setPause(true) });
       if (window.Music && Music.started()) this.button(trackR.x, trackR.y, 48, 12, 'ТРЕК >', '#29e0d0', () => Music.next());
 
       if (this.state === 'countdown') {
@@ -1224,8 +1346,8 @@
             y += ph + 16;
           } else y += 8;
           Font.draw(ctx, String(n), CX, y, '#ffc31f', 5, 'center', '#8c1a5c');
-          Font.draw(ctx, this.boss ? L.name : 'РІВЕНЬ ' + L.n, CX, y + 44, '#ffffff', 2, 'center', '#12082a');
-          if (!this.boss) Font.draw(ctx, L.name, CX, y + 64, '#ffc31f', 1, 'center', '#12082a');
+          Font.draw(ctx, this.boss || L.lesson ? L.name : 'РІВЕНЬ ' + L.n, CX, y + 44, '#ffffff', 2, 'center', '#12082a');
+          if (!this.boss && !L.lesson) Font.draw(ctx, L.name, CX, y + 64, '#ffc31f', 1, 'center', '#12082a');
           L.tips.forEach((str, i) => Font.draw(ctx, str, CX, y + 82 + i * 12, i === 0 ? '#ffc31f' : '#d8ccff', 1, 'center'));
         } else {
           if (this.boss) {
@@ -1238,7 +1360,7 @@
           // a duel keeps its text to the right of the rival's portrait
           const tx = this.boss ? 300 : 240;
           Font.draw(ctx, String(n), tx, 44, '#ffc31f', 6, 'center', '#8c1a5c');
-          Font.draw(ctx, this.boss ? L.name : 'РІВЕНЬ ' + L.n + ' - ' + L.name, tx, 98, '#ffffff', 2, 'center', '#12082a');
+          Font.draw(ctx, this.boss || L.lesson ? L.name : 'РІВЕНЬ ' + L.n + ' - ' + L.name, tx, 98, '#ffffff', 2, 'center', '#12082a');
           L.tips.forEach((str, i) => Font.draw(ctx, str, tx, 122 + i * 12, i === 0 ? '#ffc31f' : '#d8ccff', 1, 'center'));
         }
       }
@@ -1252,47 +1374,9 @@
         Font.draw(ctx, 'ЧЕКАЄМО СУПЕРНИКІВ ' + Math.ceil(this.endTimer), CX, msgY, '#fff1c9', 1, 'center');
         this.button(CX - 30, msgY + 12, 60, 14, 'ДАЛІ >', '#ffc31f', () => this.showResults());
       }
-      if (this.tut && this.state === 'race') this.drawTutorial();
+      if ((this.tut || this.lesson) && this.state === 'race') Lessons.draw(ctx, this);
       if (this.banner) Font.draw(ctx, this.banner.text, CX, R.fieldTop + 70, this.banner.color, 3, 'center', '#12082a');
       ctx.restore();
-    },
-
-    drawTutorial() {
-      const T = this.tut, g = this.world.gap, t = this.time, p = this.player, w = this.world;
-      const plate = (text, y, color) => {
-        const tw = Font.measure(text, 1), x = Math.round(CX - tw / 2 - 6);
-        ctx.fillStyle = '#12082ae0'; ctx.fillRect(x, y - 3, Math.round(tw + 12), 13);
-        ctx.fillStyle = color; ctx.fillRect(x, y + 9, Math.round(tw + 12), 1);
-        Font.draw(ctx, text, CX, y, color, 1, 'center');
-      };
-      const py0 = R.fieldTop + 44;
-      if (T.bridged) {
-        if (p.state !== 'finished') plate('ЗБИРАЙ ГРОШІ І ЇДЬ ДО ФІНІШУ', py0, '#b6ff6a');
-        return;
-      }
-      // pulsing frame over the chasm
-      const W = g.len * CELL, tx = Math.round(g.col * CELL - this.camX), ty = g.row * CELL + R.fieldTop;
-      ctx.fillStyle = Math.floor(t * 4) % 2 ? '#ffc31f' : '#fff3a0';
-      for (let x = 0; x < W; x += 4) { ctx.fillRect(tx + x, ty, 2, 1); ctx.fillRect(tx + x + 2, ty + CELL - 1, 2, 1); }
-      for (let y = 0; y < CELL; y += 4) { ctx.fillRect(tx, ty + y, 1, 2); ctx.fillRect(tx + W - 1, ty + y + 2, 1, 2); }
-      // demo: a see-through block flies from the tray into the chasm with a pointing hand
-      if (!this.drag) {
-        const k = (t % 2.4) / 1.6;
-        if (k <= 1) {
-          const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
-          const r = this.slotRect(1), sx = r.x + r.w / 2 - W / 2, sy = r.y + r.h / 2 - CELL / 2;
-          const x = Math.round(sx + (tx - sx) * e), y = Math.round(sy + (ty - sy) * e - Math.sin(e * Math.PI) * 36);
-          ctx.globalAlpha = 0.6;
-          for (let i = 0; i < g.len; i++) ctx.drawImage(Art.tile(1, this.gi), x + i * CELL, y);
-          ctx.globalAlpha = 1;
-          ctx.drawImage(HAND, x + W / 2 - 2, y + 8);
-        }
-      }
-      plate('ПЕРЕТЯГНИ БЛОК З ПАНЕЛІ У ПРІРВУ', py0, '#ffc31f');
-      let wrong = false;
-      for (let c = g.col; c < g.col + g.len; c++) for (let r = 1; r < ROWS; r++) if (r !== g.row && w.type[r * w.cols + c]) wrong = true;
-      if (wrong) plate('СТАВ БЛОК НА РІВНІ ДАХУ', py0 + 14, '#ff7cc6');
-      else if (p.hold) plate('МАШИНА ЧЕКАЄ, ПОКИ ТИ ЗБУДУЄШ МІСТ', py0 + 14, '#d8ccff');
     },
 
     drawDuelResults() {
@@ -1367,10 +1451,12 @@
       const L = this.level, busted = this.player.state === 'busted';
       if (this.boss) { this.drawDuelResults(); ctx.restore(); return; }
       const free = this.free, FR = free ? Levels.FREE[free] : null;
-      // Coming last is not losing here - only the cell is. A level ends in defeat when the
-      // cops took you, and in every other case it is passed, whatever place you came in.
+      // Only first place in the final table passes a level; anything else is a defeat that
+      // still pays out what the run earned.
+      const place = 1 + this.results.findIndex((r) => r.c === this.player);
       const title = busted && !L.bonusRun ? 'ТЕБЕ ЗАТРИМАЛИ'
         : L.bonusRun ? 'ЗАЇЗД ЗАКІНЧЕНО'
+        : !this.passed ? 'ПОРАЗКА - ' + place + ' МІСЦЕ'
         : free ? FR.name + ' ' + L.freeLevel + ' - ГОТОВО!'
         : 'РІВЕНЬ ' + L.n + ' ПРОЙДЕНО!';
       const main = Art.TEAM[this.gi].main;
@@ -1381,9 +1467,12 @@
         ? () => UI.transition('shutter', () => this.startFree(free), FR.name + ' ' + (L.freeLevel + 1))
         : () => UI.transition('shutter', () => this.startRace(L.n + 1), 'РІВЕНЬ ' + (L.n + 1));
       const earned = 'ЗАРОБЛЕНО: ' + UI.money(this.earned) + (this.win && L.winBonus ? ' (+' + L.winBonus + ' ЗА ПЕРЕМОГУ)' : '');
+      // a defeat still pays: the way out of the sheet says so and carries the money home
+      const collect = this.earned > 0 ? 'ЗАБРАТИ ' + UI.money(this.earned) : free ? 'ДО ЗАЇЗДІВ' : 'В ГАРАЖ';
       let sub = '';
       if (L.bonusRun) sub = busted ? 'ПОЛІЦІЯ ВЗЯЛА ТЕБЕ НА ' + this.distance + ' М' : 'ТРАСА ПРОЙДЕНА: ' + this.distance + ' М';
       else if (busted) sub = 'НЕ БУЛО ЧИМ ВІДКУПИТИСЬ';
+      else if (!this.passed) sub = this.player.place ? 'ТРЕБА ПЕРШЕ МІСЦЕ В ТАБЛИЦІ' : 'ТИ НЕ ДОЇХАВ ДО ФІНІШУ';
       else if (free) sub = 'ДАЛІ: ' + FR.name + ' ' + (L.freeLevel + 1);
       else { const nx = Levels.config(L.n + 1); sub = (this.unlocked ? 'ВІДКРИТО ' : 'ДАЛІ ') + 'РІВЕНЬ ' + nx.n + ': ' + nx.name; }
       Font.draw(ctx, title, CX, P ? 16 : 18, this.passed ? '#ffc31f' : '#ff3ea5', P ? 2 : 3, 'center', '#12082a');
@@ -1427,8 +1516,11 @@
         if (this.passed) {
           this.button(bx, DH - 102, bw, 26, free ? 'ДАЛІ: ' + (L.freeLevel + 1) : 'ДАЛІ: РІВЕНЬ ' + (L.n + 1), main, next, 2);
           this.button(bx, DH - 70, bw, 26, 'ПЕРЕГРАТИ', '#29e0d0', again, 2);
-        } else this.button(bx, DH - 70, bw, 26, 'ЩЕ РАЗ', main, again, 2);
-        this.button(bx, DH - 38, bw, 26, free ? 'ДО ЗАЇЗДІВ' : 'В ГАРАЖ', '#9d8cff', garage, 2);
+          this.button(bx, DH - 38, bw, 26, free ? 'ДО ЗАЇЗДІВ' : 'В ГАРАЖ', '#9d8cff', garage, 2);
+        } else {
+          this.button(bx, DH - 70, bw, 26, 'ЩЕ РАЗ', main, again, 2);
+          this.button(bx, DH - 38, bw, 26, collect, '#9bf08a', garage, 2);
+        }
         ctx.restore();
         return;
       }
@@ -1455,8 +1547,8 @@
         this.button(194, 192, 114, 22, 'ПЕРЕГРАТИ', '#29e0d0', again);
         this.button(316, 192, 128, 22, free ? 'ДО ЗАЇЗДІВ' : 'В ГАРАЖ', '#9d8cff', garage);
       } else {
-        this.button(130, 192, 100, 22, 'ЩЕ РАЗ', main, again);
-        this.button(250, 192, 100, 22, free ? 'ДО ЗАЇЗДІВ' : 'В ГАРАЖ', '#9d8cff', garage);
+        this.button(110, 192, 110, 22, 'ЩЕ РАЗ', main, again);
+        this.button(230, 192, 140, 22, collect, '#9bf08a', garage);
       }
       ctx.restore();
     },
@@ -1473,20 +1565,36 @@
   screen.addEventListener('pointermove', (e) => { e.preventDefault(); if (!botOwnsInput()) Game.pointerMove(e); });
   screen.addEventListener('pointerup', (e) => { e.preventDefault(); if (!botOwnsInput()) Game.pointerUp(e); });
   screen.addEventListener('pointerleave', () => { Game.mouse = null; });
+  // the mouse wheel scrolls whatever list the garage is showing
+  screen.addEventListener('wheel', (e) => {
+    if (Game.state !== 'garage') return;
+    e.preventDefault();
+    Garage.wheel(e.deltaY * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 400 : 1));
+  }, { passive: false });
   screen.addEventListener('pointercancel', () => { Game.drag = null; Game.ink = null; if (Game.grab) Game.releaseGrab(); });
   window.addEventListener('keydown', (e) => {
+    // the gang picker answers A/D and the arrows, and ENTER takes the gang
+    if (Game.state === 'select' && !UI.transitioning) {
+      const d = { KeyA: -1, ArrowLeft: -1, KeyW: -1, ArrowUp: -1, KeyD: 1, ArrowRight: 1, KeyS: 1, ArrowDown: 1 }[e.code];
+      if (d) { Game.selected = (Game.selected + d + 3) % 3; Audio8.sfx.select(); e.preventDefault(); }
+      if (e.code === 'Enter' || e.code === 'Space') { Audio8.sfx.click(); Profile.setGang(Game.selected); UI.transition('slash', () => Game.toGarage()); e.preventDefault(); }
+      return;
+    }
     if (Game.state === 'garage') { Garage.key(e.code); if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault(); return; }
     if ((Game.state !== 'race' && Game.state !== 'countdown') || !Game.player || window.BOT_MODE) return;
     if (e.repeat) return;   // a held key is one press, not a stutter of them
+    if (e.code === 'Escape' || e.code === 'KeyP') { Game.setPause(!Game.paused); e.preventDefault(); return; }
+    if (Game.paused) return;
     if (e.code === 'Space' || e.code === 'ArrowUp') { Game.player.jump(); Game.pressJ = 0.15; e.preventDefault(); }
     if (e.code === 'ControlLeft' || e.code === 'ControlRight' || e.code === 'KeyN' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
       if (Game.player.useNitro()) Game.shake(2); else Audio8.sfx.invalid();
       Game.pressN = 0.15;
       e.preventDefault();
     }
-    if (SLOT_KEY_CODE[e.code] != null) { Game.armSlot(SLOT_KEY_CODE[e.code]); e.preventDefault(); }
+    if (SLOT_KEY_CODE[e.code] != null) { Game.inputMode = 'pc'; Game.armSlot(SLOT_KEY_CODE[e.code]); e.preventDefault(); }
   });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { Audio8.setEngine(0, false); Audio8.setSiren(0); } });
+  // a phone put down mid-race comes back to a paused race, not to a wreck
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { Audio8.setEngine(0, false); Audio8.setSiren(0); if (!window.BOT_MODE) Game.setPause(true); } });
 
   let last = performance.now();
   function loop(now) {

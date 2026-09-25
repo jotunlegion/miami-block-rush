@@ -66,6 +66,7 @@
       type: new Uint8Array(cols * ROWS),
       owner: new Uint8Array(cols * ROWS),
       flash: new Float32Array(cols * ROWS),
+      life: new Float32Array(cols * ROWS),   // seconds a laid block has left; 0 is permanent
       bags: [], nitros: [], platforms: [], islands: [],
       startCol: 2,
       // an endless run is never finished, only ended: the gate is parked out of reach
@@ -88,12 +89,16 @@
     if (!cfg.endless) for (let c = cols - 30; c < cols; c++) for (let row = 9; row < ROWS; row++) set(c, row, 1);
 
     if (cfg.tutorial) {
-      // one long rooftop split by a small chasm the player has to bridge
-      const g = (w.gap = cfg.gap);
-      for (let c = 22; c < cols - 30; c++) if (c < g.col || c >= g.col + g.len) for (let row = 9; row < ROWS; row++) set(c, row, 1);
-      [5, 7, 9, 11].forEach((d, i) => bag(g.col + g.len + d, 8, i === 2 ? 250 : 100));
+      // one long rooftop split by small chasms the player has to bridge
+      w.gaps = cfg.gaps.map((g) => Object.assign({ bridged: false }, g));
+      w.gap = w.gaps[0];
+      const inGap = (c) => w.gaps.some((g) => c >= g.col && c < g.col + g.len);
+      for (let c = 22; c < cols - 30; c++) if (!inGap(c)) for (let row = 9; row < ROWS; row++) set(c, row, 1);
+      for (const g of w.gaps) [5, 7, 9, 11].forEach((d, i) => bag(g.col + g.len + d, 8, i === 2 ? 250 : 100));
       return w;
     }
+
+    if (cfg.lesson === 'neon') { layoutNeonLesson(w, set, bag); return w; }
 
     if (cfg.draw) { layoutNeon(w, cfg, r, set, bag); return w; }
 
@@ -157,7 +162,7 @@
   // eight minute track and an endless one cost the same memory.
   function recycle(w, cfg, shift) {
     const cols = w.cols, px = shift * CELL;
-    for (const arr of [w.type, w.owner, w.flash])
+    for (const arr of [w.type, w.owner, w.flash, w.life])
       for (let row = 0; row < ROWS; row++) {
         const b = row * cols;
         arr.copyWithin(b, b + shift, b + cols);
@@ -299,13 +304,14 @@
     return true;
   }
 
-  function place(w, shape, col, row, owner) {
+  // life: how many seconds the piece stands before it crumbles, 0 for one that stays
+  function place(w, shape, col, row, owner, life = 0) {
     for (let dy = 0; dy < shape.length; dy++)
       for (let dx = 0; dx < shape[dy].length; dx++) {
         const t = shape[dy][dx];
         if (!t) continue;
         const i = (row + dy) * w.cols + col + dx;
-        w.type[i] = t; w.owner[i] = owner; w.flash[i] = 0.75;
+        w.type[i] = t; w.owner[i] = owner; w.flash[i] = 0.75; w.life[i] = life;
       }
   }
 
@@ -328,6 +334,17 @@
     if (isNaN(ya)) return yb;
     if (isNaN(yb) || a === b) return ya;
     return ya + ((yb - ya) * (i - a)) / (b - a);
+  }
+
+  // The neon lesson: a flat gap to paint across, then a step up to paint a ramp onto. Every
+  // gap is recorded, because the car waits at the edge of each one until it is painted over.
+  function layoutNeonLesson(w, set, bag) {
+    initInk(w);
+    const flat = (c0, c1, row) => { for (let c = c0; c < c1; c++) set(c, row, 1); };
+    flat(22, 40, 9); flat(44, 64, 9); flat(67, w.cols - 30, 7);
+    w.lessonGaps = [{ c0: 40, c1: 44, rA: 9, rB: 9 }, { c0: 64, c1: 67, rA: 9, rB: 7 }];
+    bag(32, 8, 100); bag(52, 8, 100); bag(58, 8, 100); bag(76, 6, 250); bag(82, 6, 100);
+    w.nitros.push({ x: 49 * CELL + 8, y: 7 * CELL + 6, taken: false, t: 0 });
   }
 
   // Neon mode layout: a road broken into ledges, the player paints across every gap.

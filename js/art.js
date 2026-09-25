@@ -9,7 +9,22 @@
   const POLICE = { hi: '#9cc4ff', main: '#2f6bff', dark: '#16307a', body: '#131a44', body2: '#10163a' };
   const PLATFORM = { hi: '#d8ff9a', main: '#6aff5a', dark: '#1f7a3a', body: '#173a22', body2: '#12301c' };
   const BARRIER = { hi: '#ffd08a', main: '#ff8a3d', dark: '#8a3d0f', body: '#4a2410', body2: '#3d1d0c' };
-  const teamPal = (o) => (o < 3 ? TEAM[o] : o === 3 ? POLICE : o === 5 ? PLATFORM : o === 6 ? BARRIER : STATIC);
+  // The road itself - rooftops, islands, floating traps - dresses for the part of town. Each
+  // set is picked against its own backdrop: dark teal deco concrete over the bright beach,
+  // light steel with a cyan neon lip over the night towers, terracotta brick over the warm
+  // Calle Ocho haze. Gang pieces keep their gang colours everywhere: that is who laid them.
+  const STATICS = {
+    sunset: STATIC,
+    beach: { hi: '#9ff5e6', main: '#22b8aa', dark: '#083c44', body: '#0f5c66', body2: '#0c505a', detail: '#c8fff4' },
+    downtown: { hi: '#8ff8ff', main: '#2ccbe4', dark: '#141a34', body: '#434c6e', body2: '#3a4262', detail: '#a4b0d8' },
+    havana: { hi: '#ffd2a0', main: '#e8783e', dark: '#5a1e0c', body: '#a4462a', body2: '#933c22', detail: '#c96a44' },
+  };
+  // tunnel walls are a warning orange - except over Calle Ocho's terracotta, where orange walls
+  // melted into the brick floors; there they turn cold teal
+  const BARRIER_COOL = { hi: '#a8f8ff', main: '#29c7e0', dark: '#0a3448', body: '#12506a', body2: '#0f445c' };
+  let theme = 'sunset';
+  const setTheme = (id) => { theme = STATICS[id] ? id : 'sunset'; };
+  const teamPal = (o) => (o < 3 ? TEAM[o] : o === 3 ? POLICE : o === 5 ? PLATFORM : o === 6 ? (theme === 'havana' ? BARRIER_COOL : BARRIER) : STATICS[theme]);
 
   // ---------- voxel car maps ----------
   const PAL_COMMON = { K: '#1a0f2a', C: '#6fe8ff', c: '#1e6a9e', Y: '#fff6b0', R: '#ff2a3a', H: '#e6ecf5', G: '#5a4a78' };
@@ -178,7 +193,8 @@
   // ---------- tiles ----------
   const tileCache = {};
   function tile(type, owner) {
-    const key = type * 16 + owner;
+    const st = owner >= 6 ? theme : '';
+    const key = type * 16 + owner + st;
     if (tileCache[key]) return tileCache[key];
     const p = teamPal(owner);
     const solid = (x, y) => {
@@ -206,8 +222,13 @@
         else if (x === 0 || !solid(x - 1, y)) col = p.main;
         else if (x === 14 || y === 14) col = p.body2;
         else col = (x + y) % 4 === 0 && y > 4 ? p.body2 : p.body;
-        // neon window dots on static rooftops
-        if (owner === 9 && type === 1 && y > 5 && y < 13 && x > 3 && x < 12 && x % 4 === 0 && y % 4 === 2) col = '#ffcf6a';
+        // each part of town gives the full roof block its own face
+        if (owner === 9 && type === 1 && y > 2 && y < 14 && x > 0 && x < 15) {
+          if (theme === 'sunset') { if (y > 5 && y < 13 && x > 3 && x < 12 && x % 4 === 0 && y % 4 === 2) col = '#ffcf6a'; }   // neon windows
+          else if (theme === 'beach') { if (y === 7 || y === 11) col = x > 1 && x < 14 ? p.detail : col; else if (y === 8 || y === 12) col = x > 1 && x < 14 ? p.dark : col; }   // deco ribbons
+          else if (theme === 'downtown') { if ((x === 3 || x === 12) && (y === 4 || y === 12)) col = p.detail; else if (x === 8 && y > 4) col = p.body2; else if (x === 7 && y > 4) col = p.dark; }   // steel plate, rivets, seam
+          else if (theme === 'havana') { if (y === 7 || y === 11) col = p.detail; else if ((y < 7 && x === 8) || (y > 7 && y < 11 && (x === 4 || x === 12))) col = p.detail; }   // clay brick
+        }
         g.fillStyle = col;
         g.fillRect(x, y, 1, 1);
       }
@@ -317,7 +338,9 @@
     return c;
   }
 
-  function drawBackground(ctx, vw, vh, baseY, camX, time) {
+  // theme: which part of town the race is in (js/scenery.js); the sunset is the default
+  function drawBackground(ctx, vw, vh, baseY, camX, time, theme) {
+    if (theme && window.Scenery && Scenery.has(theme)) { Scenery.draw(ctx, theme, vw, vh, baseY, camX, time); return; }
     if (!bgCache || bgCache.vw !== vw || bgCache.vh !== vh || bgCache.baseY !== baseY) {
       bgCache = Object.assign(buildSky(vw, vh, baseY), { vw, vh, baseY });
       skylineFar = buildSkyline(3, 60, '#3a1560', '#b04a9a', null, true);
@@ -363,5 +386,5 @@
     '         KggggggggggggggggggK           ',
   ], { K: '#0b0718', B: '#1a2350', b: '#2c3d8a', h: '#5f82e0', S: '#e8ecff', W: '#bff4ff', w: '#3aa7d0', g: '#8a90aa', L: '#ff2a3a' });
 
-  window.Art = { TEAM, teamPal, CARS, carCanvas, wheel, tile, bag, bagBig, nitro, heli, drawBackground, fromRows };
+  window.Art = { TEAM, teamPal, setTheme, get theme() { return theme; }, CARS, carCanvas, wheel, tile, bag, bagBig, nitro, heli, drawBackground, fromRows };
 })();

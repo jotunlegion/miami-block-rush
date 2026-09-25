@@ -15,7 +15,7 @@
   };
   const TIPS = {
     1: ['ТВОЯ МАШИНА ЇДЕ САМА', 'ТВОЯ СПРАВА - БУДУВАТИ ДОРОГУ'],
-    2: ['ТАП ПО БЛОКУ В ПАНЕЛІ - ПОВОРОТ', 'БЛОК СТАВИТЬСЯ ПОВЕРХ БУДЬ-ЯКОГО БЛОКУ', 'ДОВГІ ОСТРОВИ З ВІРАЖАМИ - БЕЗПЕЧНІ', '3 БАЛОНИ = НІТРО X3'],
+    2: ['БЛОК СТАВИТЬСЯ ПОВЕРХ БУДЬ-ЯКОГО БЛОКУ', 'ПОСТАВЛЕНІ БЛОКИ ЗНИКАЮТЬ ЗА 5 СЕКУНД', 'ДОВГІ ОСТРОВИ З ВІРАЖАМИ - БЕЗПЕЧНІ', '3 БАЛОНИ = НІТРО X3'],
     3: ['НОВИЙ СУПЕРНИК!', 'ПЕРЕМАГАЄ ТОЙ, У КОГО БІЛЬШЕ ГРОШЕЙ', 'ФІНІШ: +1000 / +500 / +200'],
     4: ['БЛОКІВ НЕМАЄ - МАЛЮЙ ДОРОГУ ПАЛЬЦЕМ', 'ФАРБИ НА 5 КОРПУСІВ, БАЛОН = +20%', 'ЛІНІЯ ЛЯГАЄ ПОВЕРХ ЧОГО ЗАВГОДНО', 'АЛЕ ГРОШІ Й БАЛОНИ ПІД НЕЮ ЗГОРЯТЬ'],
     5: ['ЗА ТОБОЮ КОПИ! ДОТИК - ШТРАФ $50', 'ЗЕЛЕНІ ПЛАТФОРМИ ТЯГНИ ВГОРУ/ВНИЗ', 'НЕМАЄ ГРОШЕЙ - АРЕШТ'],
@@ -81,7 +81,8 @@
     n = Math.max(1, Math.floor(n || 1));
     if (n === 1 && !force) {
       return {
-        n, name: UNLOCKS[1], tutorial: true, cols: 72, gap: { col: 28, len: 4, row: 9 },
+        // two chasms: the first teaches one way of laying a block, the second the other one
+        n, name: UNLOCKS[1], tutorial: true, cols: 100, gaps: [{ col: 28, len: 4, row: 9 }, { col: 54, len: 4, row: 9 }],
         rivals: 0, police: 0, platforms: false, heli: false, nitro: false, islands: [0, 0], trapGap: 0,
         bonus: [300], winBonus: 0, ai: null, policeSpeed: 1, tips: TIPS[1], cash: 1,
       };
@@ -165,5 +166,28 @@
     free: mode, freeLevel: Math.max(1, k), name: FREE[mode].name + ' ' + Math.max(1, k),
   });
 
-  window.Levels = { config, boss, isNeon, isTunnel, isBonus, FREE, freeConfig };
+  // ---------------- lessons ----------------
+  // A short lesson runs the first time a mechanic turns up - before the first neon level and
+  // before the first tunnel level, in the campaign or in a free ride - and it is not a level:
+  // it pays nothing, counts nothing, and hands over to the level it stood in front of.
+  const lessonBefore = (n) => (isNeon(n) && !isBonus(n) ? 'neon' : isTunnel(n) ? 'tunnel' : null);
+  function lesson(kind, then) {
+    const base = {
+      lesson: kind, then, n: then.n || 1, cash: 1, tutorial: false,
+      rivals: 0, police: 0, platforms: false, heli: 0, islands: [0, 0], trapGap: 0,
+      bonus: [0], winBonus: 0, ai: null, policeSpeed: 1,
+    };
+    if (kind === 'neon') return Object.assign(base, {
+      name: 'НАВЧАННЯ: НЕОН', cols: 120, draw: true, nitro: true,
+      paint: { max: 144, can: 0.2 },
+      tips: ['БЛОКІВ ТУТ НЕМАЄ', 'ДОРОГУ МАЛЮЄШ САМ', 'ФАРБА В БАКУ ОБМЕЖЕНА'],
+    });
+    return Object.assign(base, {
+      name: 'НАВЧАННЯ: ТУНЕЛІ', cols: 150, nitro: false,
+      tunnel: { d: 0, gap: [20, 22], two: 0, nitro: false },
+      tips: ['У КОЖНОГО СВІЙ ТУНЕЛЬ', 'У СТІНІ БРАКУЄ ФІГУРИ', 'ВСТАВ ЇЇ - І СТОВПЧИК ЗНИКНЕ'],
+    });
+  }
+
+  window.Levels = { config, boss, isNeon, isTunnel, isBonus, FREE, freeConfig, lessonBefore, lesson };
 })();
